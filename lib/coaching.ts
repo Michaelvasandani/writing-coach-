@@ -1,4 +1,4 @@
-import type { Anchor, ArticleBlock, Suggestion, SuggestionResponse, ThoughtNode } from "@/lib/types";
+import type { Anchor, ArticleBlock, Suggestion, SuggestionResponse } from "@/lib/types";
 
 export function validateAnchor(blocks: ArticleBlock[], anchor: Anchor): boolean {
   const block = blocks.find((item) => item.id === anchor.blockId);
@@ -59,7 +59,7 @@ export function applySuggestionResponse(
   return [...passage, ...structural];
 }
 
-export function findFrontier(nodes: ThoughtNode[]): string[] {
+export function findFrontier(nodes: { id: string; prerequisites: string[]; status: "ready" | "blocked" | "answered" | "skipped"; prompt?: string; required?: boolean }[]): string[] {
   const complete = new Set(nodes.filter((node) => node.status === "answered" || node.status === "skipped").map((node) => node.id));
   return nodes
     .filter((node) => node.status !== "answered" && node.status !== "skipped")

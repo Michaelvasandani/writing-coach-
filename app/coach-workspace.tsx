@@ -8,7 +8,9 @@ import type { JSONContent } from "@tiptap/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoachingExtension } from "@/lib/editor/coaching-extension";
 import { isCurrentRevision } from "@/lib/coaching";
-import type { ArticleBlock, DraftSnapshot, Suggestion } from "@/lib/types";
+import { hashArticleContent } from "@/lib/thought-development";
+import type { ArticleBlock, DraftSnapshot, Suggestion, ThoughtArticleBoundary } from "@/lib/types";
+import ThoughtDevelopmentDialog from "@/app/thought-development-dialog";
 
 type Tab = "priorities" | "suggestions" | "snapshot";
 type SavedState = {
@@ -40,9 +42,7 @@ export default function CoachWorkspace() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("Set purpose and audience, then begin writing.");
   const [explanation, setExplanation] = useState("");
-  const [thoughtOpen, setThoughtOpen] = useState(false);
-  const [thoughtInput, setThoughtInput] = useState("");
-  const [thoughtMessages, setThoughtMessages] = useState<{ role: "coach" | "writer"; text: string }[]>([]);
+  const [thoughtLaunch, setThoughtLaunch] = useState<{ articleBoundary: ThoughtArticleBoundary; initialTopic: string } | null>(null);
   const analysisTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef(saved);
   stateRef.current = saved;
@@ -100,6 +100,7 @@ export default function CoachWorkspace() {
 
   useEffect(() => { if (hydrated) localStorage.setItem(storageKey, JSON.stringify(saved)); }, [saved, hydrated]);
   useEffect(() => { editor?.commands.setCoachingSuggestions(saved.suggestions.filter((item) => item.status === "active")); }, [editor, saved.suggestions]);
+  useEffect(() => { editor?.setEditable(!thoughtLaunch); }, [editor, thoughtLaunch]);
 
   const selected = useMemo(() => saved.suggestions.find((item) => item.id === selectedId) ?? null, [saved.suggestions, selectedId]);
   const snapshotOutdated = saved.snapshot ? saved.snapshot.revision !== saved.revision : false;
@@ -135,30 +136,9 @@ export default function CoachWorkspace() {
     await requestSuggestions("reassess", articleBlocks(editor), saved.revision, undefined, context);
   }
 
-  async function beginThought() {
-    setThoughtOpen(true); setThoughtMessages([]); setThoughtInput("");
-    await askThought("meaning", "What rough thought do you want to develop?", []);
-  }
-
-  async function askThought(targetNodeId: string, seed: string, messages: { role: "coach" | "writer"; text: string }[]) {
-    setBusy("Finding the next useful question…");
-    const sessionId = "thought-local"; const turnId = `turn-${messages.length}`;
-    try {
-      const response = await fetch("/api/thought-development", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, turnId, targetNodeId, selectedThought: seed, messages, articleBoundary: { articleId: saved.articleId, revision: saved.revision } }) });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error);
-      if (data.question) setThoughtMessages([...messages, { role: "coach", text: data.question }]);
-      else if (data.summary) setThoughtMessages([...messages, { role: "coach", text: data.summary }]);
-    } catch (error) { setThoughtMessages([...messages, { role: "coach", text: error instanceof Error ? error.message : "Coach unavailable" }]); }
-    finally { setBusy(null); }
-  }
-
-  async function submitThought() {
-    if (!thoughtInput.trim()) return;
-    const messages = [...thoughtMessages, { role: "writer" as const, text: thoughtInput.trim() }];
-    setThoughtMessages(messages); setThoughtInput("");
-    const writerTurns = messages.filter((item) => item.role === "writer").length;
-    const target = writerTurns === 1 ? "reason" : writerTurns === 2 ? "place" : "completion";
-    await askThought(target, messages[1]?.text || "", messages);
+  function beginThought() {
+    const content = editor?.getJSON() ?? saved.content;
+    setThoughtLaunch({ articleBoundary: { articleId: saved.articleId, revision: saved.revision, contentHash: hashArticleContent(content) }, initialTopic: saved.purpose });
   }
 
   function clearArticle() {
@@ -167,15 +147,15 @@ export default function CoachWorkspace() {
   }
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">M</span><div><strong>Margin</strong><small>Writing coach · local prototype</small></div></div><div className="status"><span className={busy ? "pulse" : "dot"} />{busy || notice}</div><button className="text-button" onClick={clearArticle}>New article</button></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark">M</span><div><strong>Margin</strong><small>Writing coach · local prototype</small></div></div><div className="status"><span className={busy ? "pulse" : "dot"} />{busy || notice}</div><button className="text-button" onClick={clearArticle} disabled={!!thoughtLaunch}>New article</button></header>
     <section className="workspace">
       <article className="paper">
-        <div className="article-meta"><label>Purpose<input value={saved.purpose} onChange={(event) => setSaved((current) => ({ ...current, purpose: event.target.value }))} placeholder="What should this article do?" /></label><label>Audience<input value={saved.audience} onChange={(event) => setSaved((current) => ({ ...current, audience: event.target.value }))} placeholder="Who is it for?" /></label></div>
+        <div className="article-meta"><label>Purpose<input value={saved.purpose} disabled={!!thoughtLaunch} onChange={(event) => setSaved((current) => ({ ...current, purpose: event.target.value }))} placeholder="What should this article do?" /></label><label>Audience<input value={saved.audience} disabled={!!thoughtLaunch} onChange={(event) => setSaved((current) => ({ ...current, audience: event.target.value }))} placeholder="Who is it for?" /></label></div>
         <EditorContent editor={editor} />
         <footer className="editor-footer"><span>{wordCount(editor)} words</span><span>Saved in this browser</span></footer>
       </article>
       <aside className="coach-panel">
-        <div className="coach-heading"><div><span className="eyebrow">Coach panel</span><h2>Keep the pen.</h2></div><button className="thought-button" onClick={beginThought}>Develop a thought</button></div>
+        <div className="coach-heading"><div><span className="eyebrow">Coach panel</span><h2>Keep the pen.</h2></div><button className="thought-button" onClick={beginThought}>Develop your ideas</button></div>
         <nav className="tabs" aria-label="Coach views">{(["priorities", "suggestions", "snapshot"] as Tab[]).map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item === "snapshot" ? "Draft Snapshot" : item[0].toUpperCase() + item.slice(1)}{item === "suggestions" && saved.suggestions.filter((s) => s.status === "active").length ? <b>{saved.suggestions.filter((s) => s.status === "active").length}</b> : null}</button>)}</nav>
         <div className="panel-body">
           {tab === "priorities" && <div><p className="panel-intro">The few changes most likely to improve this draft. Only a fresh Snapshot can change them.</p>{saved.snapshot?.priorities.length ? saved.snapshot.priorities.map((priority) => <section className="priority-card" key={priority.rank}><span>{priority.rank}</span><div><small>{priority.category.replace("-", " ")}</small><h3>{priority.guidance}</h3><p>{priority.why}</p></div></section>) : <Empty title="No Priorities yet" body="When the draft has enough substance, refresh its Snapshot. The Coach will select up to three meaningful improvements—not filler." action="Refresh Snapshot" onAction={refreshSnapshot} />}</div>}
@@ -185,7 +165,7 @@ export default function CoachWorkspace() {
         {saved.context.length ? <details className="context"><summary>Coaching Context <span>{saved.context.length}</span></summary>{saved.context.map((item, index) => <div key={`${item}-${index}`}>{item}<button onClick={() => setSaved((current) => ({ ...current, context: current.context.filter((_, i) => i !== index), snapshot: current.snapshot ? { ...current.snapshot, revision: -1 } : null }))}>×</button></div>)}</details> : null}
       </aside>
     </section>
-    {thoughtOpen && <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="thought-title"><div className="thought-modal"><header><div><span className="eyebrow">Thought development</span><h2 id="thought-title">Find what you mean</h2></div><button aria-label="Close Thought Development" onClick={() => setThoughtOpen(false)}>×</button></header><div className="thought-stream">{thoughtMessages.length ? thoughtMessages.map((message, index) => <div key={index} className={`thought-message ${message.role}`}><small>{message.role === "coach" ? "Coach" : "You"}</small><p>{message.text}</p></div>) : <p className="muted">The Article remains unchanged behind this conversation.</p>}</div><div className="thought-compose"><textarea aria-label="Your thought" value={thoughtInput} onChange={(event) => setThoughtInput(event.target.value)} placeholder="Answer in your own rough words…" /><button onClick={submitThought} disabled={!thoughtInput.trim() || !!busy}>Continue</button></div><footer>Your answers stay as notes. The Coach will not turn them into publishable prose.</footer></div></div>}
+    {thoughtLaunch && <ThoughtDevelopmentDialog articleBoundary={thoughtLaunch.articleBoundary} initialTopic={thoughtLaunch.initialTopic} onClose={() => setThoughtLaunch(null)} />}
   </main>;
 }
 
