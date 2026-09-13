@@ -4,15 +4,19 @@
 
 **Blocked by:** 02 — Collect Session Notes and show Development Readiness; 04 — Explore and revise temporary Article Shapes.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Writer can review a partial or complete Session before closing it.
-- [ ] Copy notes produces clean Markdown containing the topic, notes grouped by role, the selected Shape when present, and unresolved questions.
-- [ ] Copy transcript is a separate action and does not clutter the concise notes output.
-- [ ] Closing a Session with Writer answers or notes offers Copy and close, Close without copying, and Keep working.
-- [ ] Closing an empty Session does not show an unnecessary loss warning.
-- [ ] Copy and close copies exactly once and then discards the Session.
-- [ ] Closing or reloading leaves no transcript, Session Notes, Development Readiness, or Article Shapes in browser-local storage.
-- [ ] Suggestion and Draft Snapshot requests contain none of the discarded Session material.
-- [ ] The Article is byte-for-byte unchanged by Session completion, copying, closing, or reload.
-- [ ] Tests cover copied Markdown, transcript copying, all closing choices, reload disposal, critique isolation, and unchanged Article content.
+- [x] A Writer can review a partial or complete Session before closing it.
+- [x] Copy notes produces clean Markdown containing the topic, notes grouped by role, the selected Shape when present, and unresolved questions.
+- [x] Copy transcript is a separate action and does not clutter the concise notes output.
+- [x] Closing a Session with Writer answers or notes offers Copy and close, Close without copying, and Keep working.
+- [x] Closing an empty Session does not show an unnecessary loss warning.
+- [x] Copy and close copies exactly once and then discards the Session.
+- [x] Closing or reloading leaves no transcript, Session Notes, Development Readiness, or Article Shapes in browser-local storage.
+- [x] Suggestion and Draft Snapshot requests contain none of the discarded Session material.
+- [x] The Article is byte-for-byte unchanged by Session completion, copying, closing, or reload.
+- [x] Tests cover copied Markdown, transcript copying, all closing choices, reload disposal, critique isolation, and unchanged Article content.
+
+## Comments
+
+- Implemented on `codex/session-thought-ticket-05`. Verified with the full Vitest suite, TypeScript typecheck, and production build.

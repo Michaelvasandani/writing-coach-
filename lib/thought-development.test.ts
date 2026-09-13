@@ -8,6 +8,8 @@ import {
   createThoughtDevelopmentSession,
   deleteSessionNote,
   editSessionNote,
+  formatSessionNotesMarkdown,
+  formatThoughtTranscriptMarkdown,
   finishThoughtDevelopment,
   isThoughtCheckpoint,
   moveShapeNote,
@@ -261,6 +263,26 @@ describe("Session Notes and Development Readiness", () => {
     expect(finished.notes).toBe(changed.notes);
   });
 
+  it("moves a fully resolved model completion into Session review", () => {
+    let session = awaitingCentralPoint();
+    session = {
+      ...session,
+      readiness: {
+        central_point: "unresolved", reasoning: "addressed", support: "addressed",
+        reader_relevance: "addressed", structural_placement: "addressed"
+      }
+    };
+    session = thoughtDevelopmentReducer(session, { type: "submit_answer", turnId: "writer-1", text: "Parks make daily nature available." });
+    const completed = validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: session.id, turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "complete" }
+    });
+
+    expect(completed.phase).toBe("finished");
+    expect(Object.values(completed.readiness)).not.toContain("unresolved");
+  });
+
   it("offers reflection after question five and every three questions thereafter", () => {
     expect([1, 4, 5, 6, 8, 11, 12].filter(isThoughtCheckpoint)).toEqual([5, 8, 11]);
   });
@@ -391,5 +413,84 @@ describe("temporary Article Shapes", () => {
     expect(session.shapes[0].sections.find((section) => section.id === "section-1")?.purpose).toBe("Frame the everyday access point");
     expect(session.shapes[0].sections.find((section) => section.id === "section-2")?.noteIds).toEqual(["note-reason", "note-central"]);
     expect(session.articleBoundary).toEqual(boundary);
+  });
+});
+
+describe("copyable Session review", () => {
+  function reviewSession(): ThoughtDevelopmentSession {
+    const session = createThoughtDevelopmentSession({
+      id: "session-1", topic: "Why local parks matter", focus: "both", articleBoundary: boundary, requestId: "opening-1"
+    });
+    return {
+      ...session,
+      request: null,
+      phase: "finished",
+      readiness: {
+        central_point: "addressed", reasoning: "addressed", support: "skipped",
+        reader_relevance: "unresolved", structural_placement: "unresolved"
+      },
+      transcript: [
+        { id: "coach-opening", role: "coach", targetNodeId: "central_point", text: "What central point do you want readers to understand?" },
+        { id: "writer-1", role: "writer", targetNodeId: "central_point", text: "Parks make daily nature available.", status: "accepted" },
+        { id: "coach-reader", role: "coach", targetNodeId: "reader_relevance", text: "What should readers carry into their daily lives?" }
+      ],
+      notes: [
+        { id: "note-reason", role: "reasoning", text: "Nearby access makes nature part of an ordinary day.", sourceTurnIds: ["writer-1"], provenance: "writer-edited" },
+        { id: "note-central", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" }
+      ],
+      shapes: [{
+        id: "shape-1", organizingLogic: "Lead with the point, then explain the reason.", tradeoff: "Support remains open.",
+        sections: [
+          { id: "section-1", purpose: "State the central point", noteIds: ["note-central"] },
+          { id: "section-2", purpose: "Explain the reason", noteIds: ["note-reason"] }
+        ]
+      }],
+      selectedShapeId: "shape-1"
+    };
+  }
+
+  it("formats concise Markdown by note role with the selected Shape and unresolved questions", () => {
+    expect(formatSessionNotesMarkdown(reviewSession())).toBe(`# Why local parks matter
+
+## Session Notes
+
+### Central point
+
+- Parks make daily nature available.
+
+### Reasoning
+
+- Nearby access makes nature part of an ordinary day.
+
+## Selected Article Shape
+
+_Lead with the point, then explain the reason._
+
+1. **State the central point**
+   - Parks make daily nature available.
+2. **Explain the reason**
+   - Nearby access makes nature part of an ordinary day.
+
+Tradeoff: Support remains open.
+
+## Unresolved Questions
+
+- **Reader relevance:** What should readers carry into their daily lives?
+- **Structural placement:** Not yet explored.`);
+  });
+
+  it("formats the transcript separately without notes or Shape content", () => {
+    const markdown = formatThoughtTranscriptMarkdown(reviewSession());
+    expect(markdown).toBe(`# Thought-Development Transcript
+
+## Why local parks matter
+
+**Coach:** What central point do you want readers to understand?
+
+**Writer:** Parks make daily nature available.
+
+**Coach:** What should readers carry into their daily lives?`);
+    expect(markdown).not.toContain("Selected Article Shape");
+    expect(markdown).not.toContain("Nearby access makes nature part of an ordinary day.");
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { articleShapeOutputSchema, thoughtOutputSchema } from "@/lib/contracts/thought";
 import {
   applyArticleShapeResponse,
@@ -13,6 +13,8 @@ import {
   editSessionNote,
   failArticleShapeRequest,
   finishThoughtDevelopment,
+  formatSessionNotesMarkdown,
+  formatThoughtTranscriptMarkdown,
   isThoughtCheckpoint,
   moveShapeNote,
   removeShapeNote,
@@ -118,6 +120,45 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
   const [revisionTurnId, setRevisionTurnId] = useState<string | null>(null);
   const [revisionDraft, setRevisionDraft] = useState("");
   const [clearedCheckpoint, setClearedCheckpoint] = useState<number | null>(null);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const copyAndCloseStarted = useRef(false);
+
+  function hasSessionWork(current: ThoughtDevelopmentSession | null) {
+    return !!current && (current.notes.length > 0 || current.transcript.some((turn) => turn.role === "writer"));
+  }
+
+  function requestClose() {
+    if (!hasSessionWork(session)) {
+      onClose();
+      return;
+    }
+    setCloseError(null);
+    setConfirmingClose(true);
+  }
+
+  async function copyMarkdown(kind: "notes" | "transcript") {
+    if (!session) return;
+    try {
+      await navigator.clipboard.writeText(kind === "notes" ? formatSessionNotesMarkdown(session) : formatThoughtTranscriptMarkdown(session));
+      setCopyStatus(kind === "notes" ? "Notes copied." : "Transcript copied.");
+    } catch {
+      setCopyStatus("Copy failed. Your Session is still open.");
+    }
+  }
+
+  async function copyAndClose() {
+    if (!session || copyAndCloseStarted.current) return;
+    copyAndCloseStarted.current = true;
+    try {
+      await navigator.clipboard.writeText(formatSessionNotesMarkdown(session));
+      onClose();
+    } catch {
+      copyAndCloseStarted.current = false;
+      setCloseError("Copy failed. Your Session is still open.");
+    }
+  }
 
   async function sendRequest(current: ThoughtDevelopmentSession) {
     try {
@@ -251,7 +292,7 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
     <div className={`thought-modal${notesOpen ? " notes-open" : ""}`}>
       <header>
         <div><span className="eyebrow">Thought development · Temporary Session</span><h2 id="thought-title">Develop your ideas</h2></div>
-        <button aria-label="Close Thought Development" onClick={onClose}>×</button>
+        <button aria-label="Close Thought Development" onClick={requestClose}>×</button>
       </header>
       {!session ? <div className="thought-setup">
         <p>This workspace lasts only while this dialog is open. Your Article stays visible, read-only, and unchanged.</p>
@@ -293,7 +334,7 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
               {shapePending && <p className="muted">Arranging your current Session Notes…</p>}
               {session.lastError && <div className="thought-error" role="alert"><p>{session.lastError}</p><button onClick={session.shapeRequest?.status === "failed" ? retryStructures : retry}>Retry</button></div>}
               {session.shapeIssue && <div className="thought-error" role="alert"><strong>{session.nodes.find((node) => node.id === session.shapeIssue?.unresolvedArea)?.label} is unresolved</strong><p>{session.shapeIssue.question}</p></div>}
-              {session.phase === "finished" && <div className="thought-finished"><strong>Partial thinking saved in this open Session</strong><p>You can review or edit these notes until you close the dialog.</p></div>}
+              {session.phase === "finished" && <div className="thought-finished"><strong>Review your Session</strong><p>{session.nodes.every((node) => session.readiness[node.id] !== "unresolved") ? "Complete Session ready to review." : "Partial thinking saved in this open Session."} It remains available only while this dialog is open.</p><div className="thought-review-actions"><button onClick={() => void copyMarkdown("notes")}>Copy notes</button><button onClick={() => void copyMarkdown("transcript")}>Copy transcript</button><button className="danger" onClick={requestClose}>Close Session</button></div>{copyStatus && <small role="status">{copyStatus}</small>}</div>}
               {checkpoint && <div className="thought-checkpoint"><strong>Pause and choose what is useful now.</strong><div><button onClick={() => setClearedCheckpoint(questionCount)}>Continue</button><button onClick={() => { setNotesOpen(true); setClearedCheckpoint(questionCount); }}>Review partial notes</button><button onClick={() => setSession(finishThoughtDevelopment(session))}>Finish for now</button></div></div>}
             </div>
             {session.phase === "active" && <div className="thought-compose">
@@ -326,6 +367,13 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
         </div>
       </>}
       <footer>Nothing here edits your Article or becomes coaching context. Closing the dialog discards this Session.</footer>
+      {confirmingClose && <div className="loss-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="discard-title">
+        <div><h3 id="discard-title">Discard this temporary Session?</h3><p>Your answers, Session Notes, Development Readiness, and Article Shapes will be lost.</p>{closeError && <p className="thought-error" role="alert">{closeError}</p>}<div>
+          <button className="primary" onClick={() => void copyAndClose()}>Copy and close</button>
+          <button className="danger" onClick={onClose}>Close without copying</button>
+          <button onClick={() => setConfirmingClose(false)}>Keep working</button>
+        </div></div>
+      </div>}
     </div>
   </div>;
 }

@@ -206,3 +206,74 @@ describe("contextual Thought Development entry", () => {
     expect(localStorage.getItem(storageKey)).toBe(before);
   });
 });
+
+describe("temporary Session disposal and critique isolation", () => {
+  it("leaves the Article unchanged, stores no Session state, and excludes it from critique after reload", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn()
+      .mockReturnValueOnce("session-1").mockReturnValueOnce("opening-1").mockReturnValueOnce("writer-1") });
+    const writeText = vi.fn(async (_value: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      if (url === "/api/thought-development") {
+        const hasAnswer = request.turnId === "writer-1";
+        return { ok: true, json: async () => ({
+          contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+          targetNodeId: request.targetNodeId, articleBoundary: request.articleBoundary,
+          proposedNoteChanges: hasAnswer ? [{ kind: "upsert", note: {
+            id: "private-note", role: "central_point", text: "Parks make daily nature available.",
+            sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+          } }] : [],
+          readinessPatch: hasAnswer ? [{ nodeId: "central_point", status: "addressed" }] : [],
+          nextAction: { kind: "ask_question", targetNodeId: hasAnswer ? "reasoning" : "central_point", question: hasAnswer
+            ? "Why does that availability matter?"
+            : "What central point do you want readers to understand?" }
+        }) } as Response;
+      }
+      if (url === "/api/suggestions") return { ok: true, json: async () => ({ dispositions: [], candidates: [] }) } as Response;
+      return { ok: true, json: async () => ({ judgments: [], priorities: [], overall: null, provisional: true }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderWorkspace();
+    const articleBefore = JSON.stringify(editorHarness.content);
+
+    act(() => button("Develop your ideas").click());
+    await act(async () => button("Begin Session").click());
+    await settle();
+    const answer = document.querySelector<HTMLTextAreaElement>('[aria-label="Your answer"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    act(() => { setter?.call(answer, "Parks make daily nature available."); answer.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => button("Continue").click());
+    await settle();
+    await act(async () => button("Finish for now").click());
+    await act(async () => button("Copy notes").click());
+    await act(async () => button("Close Session").click());
+    await act(async () => button("Close without copying").click());
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(editorHarness.content)).toBe(articleBefore);
+    const persisted = localStorage.getItem(storageKey)!;
+    expect(persisted).not.toContain("Parks make daily nature available.");
+    expect(persisted).not.toMatch(/"(?:transcript|notes|readiness|shapes)"/);
+
+    act(() => button("Draft Snapshot").click());
+    await act(async () => button("Refresh from current Article").click());
+    await settle();
+    const critiqueCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/suggestions" || url === "/api/snapshot");
+    expect(critiqueCalls).toHaveLength(2);
+    for (const [, init] of critiqueCalls) {
+      const payload = String(init?.body);
+      expect(payload).not.toContain("Parks make daily nature available.");
+      expect(payload).not.toMatch(/"(?:transcript|notes|readiness|shapes)"/);
+    }
+    expect(JSON.stringify(editorHarness.content)).toBe(articleBefore);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<CoachWorkspace />));
+    await settle();
+    expect(document.querySelector('[aria-label="Close Thought Development"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Parks make daily nature available.");
+    expect(JSON.stringify(editorHarness.content)).toBe(articleBefore);
+  });
+});
