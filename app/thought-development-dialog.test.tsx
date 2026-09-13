@@ -45,6 +45,54 @@ afterEach(() => {
 });
 
 describe("Thought Development dialog", () => {
+  it("shows contextual source material in setup without turning it into a Session Note", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [],
+        nextAction: { kind: "ask_question", targetNodeId: "central_point", question: "What do you want readers to understand about this passage?" }
+      }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<ThoughtDevelopmentDialog
+      articleBoundary={boundary}
+      initialTopic="Daily access to nature"
+      source={{ kind: "passage", text: "The park puts nature within walking distance.", blockId: "p-1", from: 0, to: 50 }}
+      onClose={() => {}}
+    />));
+
+    expect(document.body.textContent).toContain("Selected passage");
+    expect(document.body.textContent).toContain("The park puts nature within walking distance.");
+    act(() => setInputValue(input("Topic"), "How nearby parks change daily routines"));
+    await act(async () => button("Begin Session").click());
+    await settle();
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(request.topic).toBe("How nearby parks change daily routines");
+    expect(request.source).toEqual({ kind: "passage", text: "The park puts nature within walking distance.", blockId: "p-1", from: 0, to: 50 });
+    expect(request.notes).toEqual([]);
+  });
+
+  it("explains stale context and does not begin a corrupted Session", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<ThoughtDevelopmentDialog
+      articleBoundary={boundary}
+      initialTopic="Old suggestion"
+      source={{ kind: "suggestion", suggestionId: "s-old", text: "Clarify the opening." }}
+      validateSource={() => "That Suggestion is no longer available. Choose a current source and try again."}
+      onClose={() => {}}
+    />));
+    await act(async () => button("Begin Session").click());
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("no longer available");
+    expect(document.body.textContent).toContain("Old suggestion");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("lets the Writer edit a topic, choose one focus, and begins with one neutral question", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body));

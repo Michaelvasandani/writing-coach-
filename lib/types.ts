@@ -39,7 +39,7 @@ export type DevelopmentReadiness = Record<ThoughtNodeId, DevelopmentReadinessSta
 
 export type ThoughtSource =
   | { kind: "general" }
-  | { kind: "passage"; text: string; blockId?: string }
+  | { kind: "passage"; text: string; blockId?: string; from: number; to: number }
   | { kind: "suggestion"; suggestionId: string; text: string }
   | { kind: "priority"; rank: number; text: string };
 

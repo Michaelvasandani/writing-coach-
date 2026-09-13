@@ -13,6 +13,7 @@ type Props = {
   articleBoundary: ThoughtArticleBoundary;
   initialTopic: string;
   source?: ThoughtSource;
+  validateSource?: (source: ThoughtSource, articleBoundary: ThoughtArticleBoundary) => string | null;
   onClose: () => void;
 };
 
@@ -22,11 +23,20 @@ const focusOptions: { value: DevelopmentFocus; label: string; detail: string }[]
   { value: "both", label: "Do both", detail: "Develop the substance, then consider its organization." }
 ];
 
-export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic, source, onClose }: Props) {
+const sourceLabels: Record<ThoughtSource["kind"], string> = {
+  general: "General topic",
+  passage: "Selected passage",
+  suggestion: "Suggestion",
+  priority: "Draft Snapshot Priority"
+};
+
+export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic, source, validateSource, onClose }: Props) {
   const [topic, setTopic] = useState(initialTopic);
   const [focus, setFocus] = useState<DevelopmentFocus>("thinking");
   const [session, setSession] = useState<ThoughtDevelopmentSession | null>(null);
   const [answer, setAnswer] = useState("");
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const launchSource = source ?? { kind: "general" as const };
 
   async function sendRequest(current: ThoughtDevelopmentSession) {
     try {
@@ -51,13 +61,19 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
 
   function beginSession() {
     if (!topic.trim()) return;
+    const validationError = validateSource?.(launchSource, articleBoundary) ?? null;
+    if (validationError) {
+      setSetupError(validationError);
+      return;
+    }
+    setSetupError(null);
     const created = createThoughtDevelopmentSession({
       id: crypto.randomUUID(),
       topic,
       focus,
       articleBoundary,
       requestId: crypto.randomUUID(),
-      source
+      source: launchSource
     });
     setSession(created);
     void sendRequest(created);
@@ -89,7 +105,12 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
       </header>
       {!session ? <div className="thought-setup">
         <p>This workspace lasts only while this dialog is open. Your Article stays visible, read-only, and unchanged.</p>
-        <label>Topic<textarea aria-label="Topic" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="What do you want to work out?" /></label>
+        {launchSource.kind !== "general" && <div className="thought-context">
+          <strong>{sourceLabels[launchSource.kind]}</strong>
+          <span>{launchSource.text}</span>
+        </div>}
+        <label>Topic<textarea aria-label="Topic" value={topic} onChange={(event) => { setTopic(event.target.value); setSetupError(null); }} placeholder="What do you want to work out?" /></label>
+        {setupError && <div className="thought-error" role="alert"><p>{setupError}</p></div>}
         <fieldset><legend>Development Focus</legend>{focusOptions.map((option) => <label key={option.value} className="focus-option">
           <input aria-label={option.label} type="radio" name="thought-focus" value={option.value} checked={focus === option.value} onChange={() => setFocus(option.value)} />
           <span><strong>{option.label}</strong><small>{option.detail}</small></span>
