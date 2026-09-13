@@ -57,12 +57,32 @@ A provisional assessment of the article at its current stage, expressed as an ov
 _Avoid_: Final grade, verdict
 
 **Coach Panel**:
-The editor's side panel that summarizes suggestions, displays the current draft snapshot, and helps the writer choose what to address next.
+The editor's side panel that summarizes Suggestions, displays the current Draft Snapshot, and helps the Writer choose what to address next.
 _Avoid_: AI chat, correction feed
 
 **Thought-Development Session**:
-A focused dialogue in which the Coach questions the Writer about one rough thought until its meaning, reasoning, and place in the Article are clear. Its output consists only of ideas supplied by the Writer, organized into notes or structure.
+A focused dialogue in which the Coach questions the Writer about a topic, passage, Suggestion, or Priority until the relevant ideas and their place in the Article are clear. It may organize Writer-supplied substance into temporary Session Notes or Article Shapes, but never adds substantive ideas of its own.
 _Avoid_: Brainstorm generator, AI drafting, autocomplete
+
+**Development Focus**:
+The Writer's chosen aim for a Thought-Development Session: developing their thinking, finding a structure, or doing both. It keeps the Coach's questions within the purpose the Writer selected.
+_Avoid_: Writing mode, Coach objective
+
+**Thought-Development Transcript**:
+The temporary record of questions and answers inside an active Thought-Development Session. It disappears when the Session ends and is not used by Suggestions or Draft Snapshots.
+_Avoid_: Coaching Context, persistent history, source of truth
+
+**Session Note**:
+A temporary, Writer-editable statement distilled from and linked to the Writer's answers in the active Thought-Development Session. It records the Writer's own point, reasoning, support, intended reader effect, or structural decision and does not influence later coaching.
+_Avoid_: Brainstorm note, Coaching Context, persistent note
+
+**Article Shape**:
+An optional arrangement of Session Notes that shows one possible organizing logic for the Article and its tradeoffs. It contains only Writer-supplied substance and remains temporary unless the Writer copies it elsewhere.
+_Avoid_: Generated outline, article draft, prescribed structure
+
+**Development Readiness**:
+The visible state of whether a Thought-Development Session has addressed or explicitly skipped its central point, reasoning, support, intended reader relevance, and structural placement. It guides session completion without judging the quality of the Writer's ideas.
+_Avoid_: Completeness score, readiness grade
 
 **Priority**:
 One of at most three high-impact improvements selected from the current Draft Snapshot to guide the Writer's next revision.
