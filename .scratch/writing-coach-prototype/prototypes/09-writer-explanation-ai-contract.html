@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Writer Explanation AI contract</title>
+  <style>
+    :root { --ink:#292621; --muted:#6d675f; --paper:#f7f5ef; --panel:#fff; --line:#ded9cf; --accent:#176b5b; --soft:#e8f3ef; --warn:#8a5b11; --warnsoft:#fff2d3; --danger:#923f45; --dangersoft:#fbeaec; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(1240px,calc(100% - 28px)); margin:auto; padding:44px 0 72px; }
+    h1,h2,h3,p { margin-top:0; } h1 { max-width:900px; margin-bottom:12px; font:650 clamp(2rem,5vw,3.5rem)/1.04 Georgia,serif; }
+    h2 { margin-bottom:14px; font-size:1.08rem; } h3 { margin-bottom:5px; font-size:.94rem; }
+    .eyebrow { margin-bottom:13px; color:var(--accent); font-size:.75rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+    .intro { max-width:920px; margin-bottom:28px; color:var(--muted); font-size:1.04rem; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(330px,.65fr); gap:18px; }
+    .stack { display:grid; gap:18px; align-content:start; }
+    .panel { padding:21px; border:1px solid var(--line); border-radius:13px; background:var(--panel); box-shadow:0 7px 24px rgb(50 43 33 / 5%); }
+    .article-head,.suggestion-head,.context-head { display:flex; justify-content:space-between; gap:12px; align-items:start; }
+    .meta,.note { color:var(--muted); font-size:.82rem; }
+    .passage { margin-top:14px; padding:15px; border-left:4px solid var(--accent); background:var(--soft); }
+    .passage p { margin:0; font-family:Georgia,serif; font-size:1.03rem; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#eeeae1; color:var(--muted); font-size:.69rem; font-weight:800; letter-spacing:.03em; text-transform:uppercase; }
+    .pill.withdrawn { color:var(--accent); background:var(--soft); } .pill.revised,.pill.uncertain { color:var(--warn); background:var(--warnsoft); } .pill.conflict,.pill.discarded { color:var(--danger); background:var(--dangersoft); }
+    .suggestion,.context,.event { padding:13px 0; border-top:1px solid var(--line); }
+    .suggestion:first-child,.context:first-child,.event:first-child { padding-top:0; border-top:0; }
+    .suggestion:last-child,.context:last-child,.event:last-child { padding-bottom:0; }
+    .suggestion p,.context p,.event p { margin:5px 0 0; color:var(--muted); font-size:.88rem; }
+    .empty { color:var(--muted); font-style:italic; }
+    .controls { display:grid; gap:9px; }
+    button { appearance:none; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:white; font:inherit; font-size:.85rem; font-weight:680; cursor:pointer; text-align:left; }
+    button:hover { border-color:var(--accent); } button.primary { color:white; border-color:var(--accent); background:var(--accent); } button:disabled { opacity:.42; cursor:not-allowed; }
+    .tabs { display:flex; gap:6px; margin-bottom:15px; overflow:auto; } .tabs button { white-space:nowrap; } .tabs button.active { color:white; border-color:var(--accent); background:var(--accent); }
+    .steps { display:flex; flex-wrap:wrap; gap:8px; } .step-done { color:var(--muted); text-decoration:line-through; }
+    .step-number { display:inline-grid; width:19px; height:19px; margin-right:6px; place-content:center; border-radius:50%; background:#eeeae1; font-size:.68rem; }
+    details { border-top:1px solid var(--line); padding:13px 0; } details:first-of-type { border-top:0; padding-top:0; } summary { cursor:pointer; font-weight:750; }
+    pre { overflow:auto; margin:10px 0 0; padding:12px; border-radius:8px; background:#24231f; color:#eee9de; font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; }
+    .cases { display:grid; gap:8px; }
+    .case { padding:11px; border-radius:8px; background:#f2efe8; font-size:.82rem; }
+    .case b { display:block; color:var(--accent); }
+    .verdict { border-left:4px solid var(--accent); background:var(--soft); }
+    .verdict p { margin:0; color:#315c53; font-size:.9rem; }
+    @media (max-width:850px) { .layout { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Throwaway logic prototype</div>
+  <h1>When should the Coach change its mind?</h1>
+  <p class="intro">This demo tests whether one structured reassessment contract can treat a Writer Explanation as scoped evidence, transparently withdraw, revise, or retain Suggestions, ask rather than guess when context conflicts, and preserve only anchors that still match the live article.</p>
+
+  <div class="layout">
+    <section class="stack">
+      <article class="panel" aria-live="polite">
+        <div class="article-head"><div><h2 id="article-title"></h2><div class="meta" id="article-meta"></div></div><span class="pill" id="request-state"></span></div>
+        <div class="passage"><p id="passage-copy"></p></div>
+        <p class="note" id="last-change" style="margin:12px 0 0"></p>
+      </article>
+
+      <article class="panel"><h2>Suggestions</h2><div id="suggestions"></div></article>
+      <article class="panel"><h2>Writer-provided context</h2><div id="contexts"></div></article>
+      <article class="panel"><h2>Visible reassessment record</h2><div id="events"></div></article>
+
+      <article class="panel">
+        <h2>Guided edge cases</h2>
+        <div class="tabs" id="tabs"></div>
+        <h3 id="scenario-title"></h3><p class="note" id="scenario-copy"></p>
+        <div class="steps" id="scenario-steps"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Proposed Coaching Contract</h2>
+        <details open><summary>Request: evidence, scope, anchors, and reason for reassessment</summary><pre id="request-contract"></pre></details>
+        <details><summary>Response: explicit outcomes plus questions and anchor decisions</summary><pre id="response-contract"></pre></details>
+        <details><summary>Prompt guidance: the judgments the model must not blur together</summary><pre>1. Treat Writer input as evidence, not a command or an automatic exemption.
+2. Apply passage context only to its anchored passage. Apply article context only when the Writer explicitly selected that scope.
+3. For every candidate Suggestion, return exactly one outcome: retained, revised, withdrawn, or unchanged.
+4. Retained and revised outcomes must explain why the concern survives the new evidence. Withdrawn outcomes must name what changed the judgment.
+5. Reassess related Suggestions only when both issueKind and relevant context match. Otherwise return unchanged without silently reconsidering them.
+6. If a material scope or applicability judgment is uncertain, ask one concrete Writer question. If contexts conflict, never choose one silently.
+7. Validate block ID, exact quote, offsets, and revision before applying a response. A mismatch is stale: discard it and request fresh analysis.
+8. A material passage edit retires context unless the same intentional choice is still evidenced. Deletion always retires passage context.
+9. Never transfer context to a different Article. Never update Priorities or Draft Snapshot scores outside a requested fresh snapshot.</pre></details>
+      </article>
+
+      <article class="panel"><h2>Compact evaluation set</h2><div class="cases" id="cases"></div></article>
+    </section>
+
+    <aside class="stack">
+      <article class="panel"><h2>Free play</h2><div class="controls" id="controls"></div></article>
+      <article class="panel verdict"><h2>Decision this prototype is testing</h2><p>Use one reassessment endpoint with a versioned request, candidate Suggestions, scoped Writer evidence, and live anchor data. Require an outcome for every candidate, explicit questions for material uncertainty or conflict, and deterministic client-side anchor validation before any model result changes state.</p></article>
+    </aside>
+  </div>
+</main>
+
+<script>
+// Portable prototype module: pure state transitions plus request/response derivation.
+const ExplanationContract = (() => {
+  const initialState = () => ({
+    article:{ id:"article-a", revision:12, title:"Why specialist language can build trust" },
+    passage:{ blockId:"p-7", from:0, to:64, quote:"The latency budget is exhausted before the fallback can recover.", text:"The latency budget is exhausted before the fallback can recover.", deleted:false },
+    contexts:[], pendingRequest:null, lastChange:"The Coach flagged one technical phrase and one separate long sentence.",
+    suggestions:[
+      { id:"s-1", blockId:"p-7", issueKind:"audience-jargon", text:"Explain “latency budget” for a general reader.", status:"active", reason:"The term may be unfamiliar to the stated audience." },
+      { id:"s-2", blockId:"p-9", issueKind:"sentence-load", text:"Split this later sentence so its contrast is easier to track.", status:"active", reason:"This concern does not share the same issue or passage." }
+    ], events:[]
+  });
+
+  const context = (id,scope,text,blockId=null) => ({ id,scope,text,blockId,active:true });
+  const addEvent = (s,outcome,summary,tone="") => ({...s,events:[{outcome,summary,tone},...s.events]});
+  const reduce = (state,action) => {
+    let s=structuredClone(state);
+    if(action.type==="reset") return initialState();
+    if(action.type==="explain-passage") {
+      s.contexts=s.contexts.filter(c=>c.id!=="c-passage");
+      s.contexts.push(context("c-passage","passage","The intended readers are SREs; this term is shared vocabulary.","p-7"));
+      s.lastChange="Added a passage-specific Writer Explanation. Nothing changed until reassessment."; return s;
+    }
+    if(action.type==="promote-context") {
+      const c=s.contexts.find(x=>x.id==="c-passage"); if(!c){s.lastChange="Add the passage explanation first.";return s;}
+      c.scope="article"; c.blockId=null; c.text="The intended readers are SREs; standard reliability terms need no definition.";
+      s.lastChange="The Writer explicitly promoted the evidence to article-wide Coaching Context."; return s;
+    }
+    if(action.type==="add-conflict") {
+      s.contexts.push(context("c-conflict","article","Avoid unexplained specialist terminology because product managers also read this article."));
+      s.lastChange="Added article-wide context that conflicts with the earlier audience evidence."; return s;
+    }
+    if(action.type==="request") {
+      s.pendingRequest={ requestId:"req-"+(s.events.length+1), revision:s.article.revision, quote:s.passage.text, contextIds:s.contexts.filter(c=>c.active).map(c=>c.id) };
+      s.lastChange="Captured a versioned reassessment request from the live article."; return s;
+    }
+    if(action.type==="apply") {
+      if(!s.pendingRequest){s.lastChange="Request reassessment first.";return s;}
+      if(s.pendingRequest.revision!==s.article.revision || s.pendingRequest.quote!==s.passage.text) {
+        s.pendingRequest=null; s.lastChange="Discarded a stale response; its anchor no longer matches the article.";
+        return addEvent(s,"discarded","No Suggestions changed. Fresh analysis is required.","discarded");
+      }
+      const passage=s.contexts.find(c=>c.id==="c-passage"&&c.active), conflict=s.contexts.find(c=>c.id==="c-conflict"&&c.active);
+      s.pendingRequest=null;
+      if(passage&&conflict) {
+        s.lastChange="The Coach found a material conflict and asked instead of choosing a context.";
+        return addEvent(s,"needs Writer","Should reliability terms assume SRE knowledge, or be accessible to product managers too?","conflict");
+      }
+      const one=s.suggestions.find(x=>x.id==="s-1");
+      if(passage?.scope==="passage") { one.status="revised"; one.text="Consider whether mixed-experience SREs need a brief cue for “latency budget.”"; one.reason="The explanation supports keeping the term but leaves audience breadth uncertain."; s.lastChange="Revised the current Suggestion; the unrelated Suggestion stayed unchanged."; return addEvent(s,"revised","s-1 revised; s-2 unchanged. Passage evidence applied only to p-7.","revised"); }
+      if(passage?.scope==="article") { one.status="withdrawn"; one.reason="Article-wide context confirms this is standard vocabulary for the stated audience."; s.lastChange="Withdrew the current Suggestion under explicitly article-wide context."; return addEvent(s,"withdrawn","s-1 withdrawn; s-2 unchanged because its issueKind differs.","withdrawn"); }
+      one.status="retained"; one.reason="No Writer evidence changes the audience mismatch."; s.lastChange="Retained the Suggestion and explained why."; return addEvent(s,"retained","s-1 retained; s-2 unchanged.");
+    }
+    if(action.type==="edit-passage") {
+      s.article.revision++; s.passage.text="Our latency budget—the time allowed before fallback—is exhausted."; s.passage.to=s.passage.text.length;
+      s.contexts=s.contexts.map(c=>c.blockId==="p-7"?{...c,active:false}:c);
+      s.lastChange="Materially edited p-7. Its old exact quote is stale and passage context awaits confirmation."; return s;
+    }
+    if(action.type==="confirm-context") {
+      s.contexts=s.contexts.map(c=>c.id==="c-passage"?{...c,active:true}:c); s.lastChange="The Writer confirmed the same intentional choice still applies to the revised passage."; return s;
+    }
+    if(action.type==="delete-passage") {
+      s.article.revision++; s.passage.deleted=true; s.contexts=s.contexts.map(c=>c.blockId==="p-7"?{...c,active:false}:c); s.suggestions=s.suggestions.map(x=>x.blockId==="p-7"?{...x,status:"retired",reason:"The anchored passage was deleted."}:x); s.pendingRequest=null;
+      s.lastChange="Deleted p-7. Its Suggestion and passage-specific context were retired."; return addEvent(s,"retired","Deleted anchor retired s-1 and c-passage; unrelated state was preserved.");
+    }
+    if(action.type==="replace-article") {
+      const fresh=initialState(); fresh.article={id:"article-b",revision:1,title:"A new article"}; fresh.contexts=[]; fresh.events=[]; fresh.lastChange="Replaced the article. No context transferred across the Article boundary."; return fresh;
+    }
+    return s;
+  };
+  const requestView = s => ({
+    contractVersion:"writer-reassessment.v1", requestId:s.pendingRequest?.requestId||"generated-per-request", reason:"writer_explanation_added | context_changed | passage_changed",
+    article:{id:s.article.id,revision:s.article.revision,intent:"Explain reliability tradeoffs",audience:"General technology readers"},
+    target:{blockId:s.passage.blockId,range:{from:s.passage.from,to:s.passage.to},exactQuote:s.passage.text},
+    writerEvidence:s.contexts.filter(c=>c.active).map(({id,scope,text,blockId})=>({id,scope,text,blockId})),
+    candidates:s.suggestions.filter(x=>["active","revised"].includes(x.status)).map(({id,blockId,issueKind,text})=>({id,blockId,issueKind,text})),
+    allowedOutcomes:["retained","revised","withdrawn","unchanged"]
+  });
+  const responseView = () => ({
+    contractVersion:"writer-reassessment.v1", requestId:"must echo request", articleRevision:12,
+    outcomes:[{suggestionId:"s-1",outcome:"revised",replacement:"…",reason:"…",appliedEvidenceIds:["c-passage"]},{suggestionId:"s-2",outcome:"unchanged",reason:"Different issue and context."}],
+    questions:[{kind:"scope | applicability | conflict",prompt:"One concrete question",blocksOutcomeFor:["s-1"],evidenceIds:["c-passage","c-conflict"]}],
+    anchors:[{suggestionId:"s-1",blockId:"p-7",range:{from:0,to:64},exactQuote:"…",sourceRevision:12}],
+    snapshotInvalidated:true, prioritiesChanged:false, diagnostics:{candidateCount:2,outcomeCount:2}
+  });
+  return {initialState,reduce,requestView,responseView};
+})();
+
+const actions=[
+  ["explain-passage","Explain this passage as intentional"],["promote-context","Make that context article-wide"],["add-conflict","Add conflicting audience context"],["request","Request selective reassessment"],["apply","Apply returned reassessment"],["edit-passage","Materially edit the anchored passage"],["confirm-context","Confirm the explanation still applies"],["delete-passage","Delete the anchored passage"],["replace-article","Replace with a different article"],["reset","Reset the prototype"]
+];
+const scenarios=[
+  {title:"Scoped explanation",copy:"A local explanation should revise only the matching Suggestion and disclose what stayed untouched.",steps:["explain-passage","request","apply"]},
+  {title:"Explicit article scope",copy:"Only the Writer can promote local evidence. Matching terminology advice may then be withdrawn across the article.",steps:["explain-passage","promote-context","request","apply"]},
+  {title:"Conflicting context",copy:"When two Writer-owned contexts disagree materially, the Coach must ask rather than silently rank them.",steps:["explain-passage","promote-context","add-conflict","request","apply"]},
+  {title:"Stale response",copy:"A response tied to the old revision and exact quote must not land after the passage changes.",steps:["explain-passage","request","edit-passage","apply"]},
+  {title:"Anchor lifecycle",copy:"A material edit pauses passage context for confirmation; deletion retires it and its Suggestion.",steps:["explain-passage","edit-passage","confirm-context","delete-passage"]}
+];
+const evalCases=[
+  ["E1 · Retain","No relevant evidence → s-1 retained with a reason; s-2 unchanged."],["E2 · Revise","Passage-specific specialist-audience evidence → s-1 revised; no article-wide inference."],["E3 · Withdraw","Writer-promoted article context confirms shared vocabulary → s-1 withdrawn."],["E4 · Conflict","Two material audience contexts disagree → question returned; no affected outcome applied."],["E5 · Selectivity","Relatedness requires matching issueKind and relevant context; sentence-load advice stays unchanged."],["E6 · Stale anchor","Revision or exact-quote mismatch → client discards the whole response and reanalyzes."],["E7 · Material edit","Passage context becomes inactive until the Writer confirms the same choice still applies."],["E8 · Deletion / replacement","Delete retires local anchors; replacing the Article clears every context."],["E9 · Completeness","Every candidate ID appears exactly once in outcomes; unknown or duplicate IDs fail validation."],["E10 · Ownership","Reassessment may invalidate a snapshot, but cannot auto-change Priorities or scores."]
+];
+let state=ExplanationContract.initialState(),activeScenario=0,stepIndex=0;
+const esc=s=>String(s).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pill=s=>`pill ${["withdrawn","revised","uncertain","conflict","discarded"].includes(s)?s:""}`;
+function dispatch(type,fromWalkthrough=false){state=ExplanationContract.reduce(state,{type});if(fromWalkthrough)stepIndex++;render();}
+function render(){
+  document.querySelector("#article-title").textContent=state.article.title; document.querySelector("#article-meta").textContent=`${state.article.id} · revision ${state.article.revision} · block ${state.passage.blockId}`;
+  document.querySelector("#passage-copy").textContent=state.passage.deleted?"[Passage deleted]":state.passage.text; document.querySelector("#last-change").textContent=state.lastChange;
+  const rs=document.querySelector("#request-state");rs.textContent=state.pendingRequest?`request at revision ${state.pendingRequest.revision}`:"no request pending";
+  document.querySelector("#suggestions").innerHTML=state.suggestions.map(x=>`<div class="suggestion"><div class="suggestion-head"><h3>${esc(x.id)} · ${esc(x.text)}</h3><span class="${pill(x.status)}">${esc(x.status)}</span></div><p>${esc(x.reason)}</p><div class="meta">${esc(x.blockId)} · ${esc(x.issueKind)}</div></div>`).join("");
+  document.querySelector("#contexts").innerHTML=state.contexts.length?state.contexts.map(c=>`<div class="context"><div class="context-head"><h3>${esc(c.scope)} context ${c.blockId?`· ${esc(c.blockId)}`:""}</h3><span class="pill ${c.active?"":"uncertain"}">${c.active?"active":"needs confirmation"}</span></div><p>${esc(c.text)}</p></div>`).join(""):'<p class="empty">No Writer Explanation or Coaching Context yet.</p>';
+  document.querySelector("#events").innerHTML=state.events.length?state.events.map(e=>`<div class="event"><span class="${pill(e.tone||e.outcome)}">${esc(e.outcome)}</span><p>${esc(e.summary)}</p></div>`).join(""):'<p class="empty">No reassessment has been applied.</p>';
+  document.querySelector("#request-contract").textContent=JSON.stringify(ExplanationContract.requestView(state),null,2); document.querySelector("#response-contract").textContent=JSON.stringify(ExplanationContract.responseView(),null,2);
+  document.querySelector("#controls").innerHTML=actions.map(([id,label])=>`<button class="${id==="request"?"primary":""}" data-action="${id}">${label}</button>`).join(""); document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>dispatch(b.dataset.action));
+  document.querySelector("#tabs").innerHTML=scenarios.map((s,i)=>`<button class="${i===activeScenario?"active":""}" data-tab="${i}">${esc(s.title)}</button>`).join(""); document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{activeScenario=+b.dataset.tab;stepIndex=0;state=ExplanationContract.initialState();render();});
+  const sc=scenarios[activeScenario];document.querySelector("#scenario-title").textContent=sc.title;document.querySelector("#scenario-copy").textContent=sc.copy;document.querySelector("#scenario-steps").innerHTML=sc.steps.map((id,i)=>{const label=actions.find(a=>a[0]===id)[1];return `<button data-step="${i}" class="${i<stepIndex?"step-done":""}" ${i!==stepIndex?"disabled":""}><span class="step-number">${i+1}</span>${esc(label)}</button>`}).join("");document.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>dispatch(sc.steps[+b.dataset.step],true));
+  document.querySelector("#cases").innerHTML=evalCases.map(([name,expect])=>`<div class="case"><b>${esc(name)}</b>${esc(expect)}</div>`).join("");
+}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Cross-contract model evaluation</title>
+  <style>
+    :root { --ink:#272621; --muted:#6e6a61; --paper:#f6f4ed; --panel:#fff; --line:#ddd8cd; --accent:#315f55; --soft:#e8f1ee; --warn:#8b5a12; --warnsoft:#fff1d2; --bad:#963f45; --badsoft:#fae9eb; --blue:#315f82; --bluesoft:#e8f0f7; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.48 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(1280px,calc(100% - 28px)); margin:auto; padding:42px 0 72px; }
+    h1,h2,h3,p { margin-top:0; } h1 { max-width:980px; margin-bottom:12px; font:650 clamp(2rem,5vw,3.45rem)/1.04 Georgia,serif; }
+    h2 { margin-bottom:13px; font-size:1.08rem; } h3 { margin:0 0 5px; font-size:.94rem; }
+    .eyebrow { margin-bottom:13px; color:var(--accent); font-size:.75rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+    .intro { max-width:1000px; margin-bottom:28px; color:var(--muted); font-size:1.04rem; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(330px,.55fr); gap:18px; }
+    .stack { display:grid; gap:18px; align-content:start; }
+    .panel { padding:21px; border:1px solid var(--line); border-radius:13px; background:var(--panel); box-shadow:0 7px 24px rgb(50 43 33 / 5%); }
+    .row { display:flex; justify-content:space-between; align-items:start; gap:12px; }
+    .meta,.note { color:var(--muted); font-size:.82rem; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#eeece6; color:var(--muted); font-size:.69rem; font-weight:800; letter-spacing:.03em; text-transform:uppercase; white-space:nowrap; }
+    .pill.pass { color:var(--accent); background:var(--soft); } .pill.screen { color:var(--blue); background:var(--bluesoft); } .pill.fail { color:var(--bad); background:var(--badsoft); } .pill.pending { color:var(--warn); background:var(--warnsoft); }
+    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-top:14px; }
+    .metric { padding:12px; border-radius:9px; background:#f2f0e9; } .metric b { display:block; font-size:1.1rem; } .metric span { color:var(--muted); font-size:.75rem; }
+    .routes,.candidates,.case-grid { display:grid; gap:8px; }
+    .route,.candidate,.case { padding:12px; border-radius:9px; background:#f2f0e9; }
+    .route.selected,.candidate.selected { outline:2px solid var(--accent); background:var(--soft); }
+    .route p,.candidate p,.case p { margin:4px 0 0; color:var(--muted); font-size:.82rem; }
+    .candidate.fail { background:var(--badsoft); } .candidate.pass { background:var(--soft); }
+    .scoreline { display:grid; grid-template-columns:1.4fr repeat(4,.65fr); gap:7px; align-items:center; padding:9px 0; border-top:1px solid var(--line); font-size:.79rem; }
+    .scoreline:first-child { border-top:0; } .scoreline strong { font-size:.82rem; }
+    .scoreline span:not(:first-child) { text-align:right; }
+    .controls { display:grid; gap:8px; }
+    button { appearance:none; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:white; font:inherit; font-size:.84rem; font-weight:680; cursor:pointer; text-align:left; }
+    button:hover { border-color:var(--accent); } button.primary { color:white; border-color:var(--accent); background:var(--accent); } button:disabled { opacity:.4; cursor:not-allowed; }
+    .tabs { display:flex; gap:6px; margin-bottom:14px; overflow:auto; } .tabs button { white-space:nowrap; } .tabs button.active { color:white; border-color:var(--accent); background:var(--accent); }
+    .steps { display:flex; flex-wrap:wrap; gap:8px; margin-top:11px; } .step-done { color:var(--muted); text-decoration:line-through; }
+    .step-number { display:inline-grid; width:19px; height:19px; margin-right:6px; place-content:center; border-radius:50%; background:#ebe8df; font-size:.68rem; }
+    table { width:100%; border-collapse:collapse; font-size:.79rem; } th,td { padding:9px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--muted); font-size:.68rem; letter-spacing:.04em; text-transform:uppercase; }
+    details { padding:12px 0; border-top:1px solid var(--line); } details:first-of-type { border-top:0; padding-top:0; } summary { cursor:pointer; font-weight:750; }
+    pre { overflow:auto; margin:10px 0 0; padding:12px; border-radius:8px; background:#252521; color:#eeeae0; font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; }
+    .decision { border-left:4px solid var(--accent); background:var(--soft); } .decision p { margin:0; color:#365b52; }
+    .alert { padding:11px; border-radius:8px; color:var(--bad); background:var(--badsoft); font-size:.83rem; }
+    @media (max-width:900px) { .layout { grid-template-columns:1fr; } .summary { grid-template-columns:repeat(2,1fr); } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Throwaway logic prototype</div>
+  <h1>What is the smallest evaluation that can safely choose each Coach model?</h1>
+  <p class="intro">This demo tests a staged harness and shared case set for four Coaching Contracts. It asks whether a cheap screen followed by repeated finalist runs can expose contract, evidence, and authorship failures without turning a prototype decision into a large benchmark program.</p>
+
+  <div class="layout">
+    <section class="stack">
+      <article class="panel" aria-live="polite">
+        <div class="row"><div><h2 id="route-name"></h2><div class="meta" id="route-meta"></div></div><span class="pill pending" id="route-status"></span></div>
+        <div class="summary" id="summary"></div>
+        <p class="note" id="last-change" style="margin:13px 0 0"></p>
+      </article>
+
+      <article class="panel"><h2>Route and mode under decision</h2><div class="routes" id="routes"></div></article>
+      <article class="panel"><h2>Candidate funnel</h2><div class="candidates" id="candidates"></div></article>
+      <article class="panel"><h2>Recorded results</h2><div id="results"></div></article>
+
+      <article class="panel">
+        <h2>Guided decision cases</h2>
+        <div class="tabs" id="tabs"></div>
+        <h3 id="scenario-title"></h3><p class="note" id="scenario-copy"></p>
+        <div class="steps" id="scenario-steps"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Small shared case set</h2>
+        <p class="note">Eight reusable article/event packs create sixteen scored invocations. Each pack targets a known contract boundary; several are replayed across contracts so differences cannot hide behind unrelated prose.</p>
+        <table>
+          <thead><tr><th>Pack</th><th>Invocations</th><th>Failure it exposes</th></tr></thead>
+          <tbody>
+            <tr><td><b>A · Early sketch</b></td><td>Snapshot; changed-block Suggestion</td><td>Invented certainty, weak feedback instead of silence</td></tr>
+            <tr><td><b>B · Mature uneven draft</b></td><td>Snapshot; whole-article Suggestion</td><td>Divergent category judgment, structural evidence, priority authority</td></tr>
+            <tr><td><b>C · Intentional fragments</b></td><td>Snapshot twice; Suggestion</td><td>Unknown versus stated intent, residual reader friction</td></tr>
+            <tr><td><b>D · Explained tradeoff</b></td><td>Writer reassessment; changed-block Suggestion</td><td>Retain/revise/withdraw completeness and scoped context</td></tr>
+            <tr><td><b>E · Context conflict</b></td><td>Writer reassessment</td><td>Conflict escalation instead of guessing</td></tr>
+            <tr><td><b>F · Stale revision</b></td><td>Snapshot; Suggestion; reassessment</td><td>Exact-anchor and echoed-revision rejection</td></tr>
+            <tr><td><b>G · Rough thought</b></td><td>Four-turn Thought Development</td><td>Prerequisites, one-question cadence, source entailment</td></tr>
+            <tr><td><b>H · Ownership trap</b></td><td>Suggestion; Thought Development</td><td>Replacement prose, invented examples or conclusions</td></tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="panel">
+        <h2>Proposed repeatable harness</h2>
+        <details open><summary>1 · Freeze inputs and compile provider schemas</summary><p class="note">Store request fixtures, expected deterministic outcomes, human rubric notes, contract/prompt versions, and pricing snapshots in source control. Compile all four schemas once per provider; record adapters without weakening the semantic contract.</p></details>
+        <details><summary>2 · One-pass screen on applicable cases</summary><p class="note">Run each shortlisted model/setting once on only the routes it could plausibly serve. Automatically reject malformed objects, missing dispositions, invalid anchors, stale echoes, unsupported notes, false completion, or wrong candidate limits. A blinded human marks authorship and coaching-quality failures.</p></details>
+        <details><summary>3 · Repeat only finalists</summary><p class="note">Keep the cheapest/fastest passing challenger and the strongest passing candidate per route. Run each finalist three times on every applicable case. This tests instability without paying for a full factorial repeat.</p></details>
+        <details><summary>4 · Diagnose shared failures</summary><p class="note">If all finalists miss the same case, run one ceiling model once. If it also fails, repair the fixture, schema, validator, or prompt before comparing models again. A ceiling pass suggests capability matters; it does not make the ceiling model the default automatically.</p></details>
+        <details><summary>5 · Select defaults by route, not by provider loyalty</summary><p class="note">A candidate is eligible only with zero authorship violations and zero deterministic contract failures in repeated finalist runs. Among eligible candidates, choose the lowest measured p95 complete-object latency for interactive routes and the lowest actual cost when latency is acceptable; use blinded quality as the tie-breaker. Keep separate defaults for changed-block and whole-article Suggestion modes when evidence supports it.</p></details>
+        <details><summary>Result record</summary><pre id="record-shape"></pre></details>
+      </article>
+
+      <article class="panel decision"><h2>Decision this prototype is testing</h2><p>Use 8 shared packs / 16 scored invocations, a one-pass screen, and three repeated runs only for two finalists per route. Treat deterministic contract validity and Writer authorship as hard gates; then select route-specific defaults from quality, measured p50/p95 completion latency, time to first token for Thought Development, and actual token cost.</p></article>
+    </section>
+
+    <aside class="stack">
+      <article class="panel"><h2>Free play</h2><div class="controls" id="controls"></div></article>
+      <article class="panel"><h2>Human review questions</h2><div class="case-grid">
+        <div class="case"><h3>Is the funnel small enough?</h3><p>One run across the broad field; repetition only for two finalists per route.</p></div>
+        <div class="case"><h3>Are the hard gates right?</h3><p>Any repeated authorship or deterministic contract failure blocks selection for that route.</p></div>
+        <div class="case"><h3>Are 8 packs representative?</h3><p>They cover insufficiency, divergent quality, intent, context, staleness, multi-turn state, and ownership.</p></div>
+        <div class="case"><h3>Can routes split?</h3><p>The proposal permits different defaults for Snapshot, reassessment, Suggestion modes, and Thought Development.</p></div>
+      </div></article>
+    </aside>
+  </div>
+</main>
+
+<script>
+const Evaluation = (() => {
+  const routes = [
+    {id:"snapshot",name:"Draft Snapshot",cases:5,priority:"holistic judgment"},
+    {id:"reassessment",name:"Writer reassessment",cases:3,priority:"complete, conservative dispositions"},
+    {id:"changed",name:"Changed-block Suggestions",cases:4,priority:"low-latency precision and silence"},
+    {id:"whole",name:"Whole-article Suggestions",cases:2,priority:"multi-anchor structural judgment"},
+    {id:"thought",name:"Thought Development",cases:2,priority:"responsive, source-faithful turns"}
+  ];
+  const candidates = [
+    {id:"terra",name:"GPT-5.6 Terra · low",scope:"all routes",cost:3,latency:3},
+    {id:"luna-none",name:"GPT-5.6 Luna · none",scope:"changed-block + thought",cost:1,latency:1},
+    {id:"luna-low",name:"GPT-5.6 Luna · low",scope:"changed-block + thought",cost:1,latency:1},
+    {id:"sonnet-low",name:"Claude Sonnet 5 · low",scope:"all routes",cost:3,latency:3},
+    {id:"sonnet-medium",name:"Claude Sonnet 5 · medium",scope:"all routes",cost:4,latency:4},
+    {id:"gemini-low",name:"Gemini 3.8 Flash · low",scope:"all routes",cost:2,latency:2},
+    {id:"gemini-medium",name:"Gemini 3.8 Flash · medium",scope:"all routes",cost:3,latency:3},
+    {id:"haiku",name:"Claude Haiku 4.5",scope:"changed-block + thought",cost:2,latency:1}
+  ];
+  const initialState = () => ({route:"changed",stage:"not started",runs:[],finalists:[],default:null,ceilingNeeded:false,lastChange:"Choose a walkthrough or use free play to exercise the selection rules."});
+  const clone = s => structuredClone(s);
+  const applicable = (route,c) => c.scope==="all routes" || ["changed","thought"].includes(route);
+  const result = (candidate,overrides={}) => ({candidate,round:"screen",repeat:1,semanticValid:true,authorshipViolation:false,quality:4,p50Ms:1050,p95Ms:1800,costUsd:.004,...overrides});
+  const eligibility = runs => runs.length>0 && runs.every(r=>r.semanticValid && !r.authorshipViolation);
+  const reduce = (state,action) => {
+    let s=clone(state);
+    if(action.type==="reset") return initialState();
+    if(action.type==="route") { s=initialState(); s.route=action.route; s.lastChange=`Now evaluating ${routes.find(r=>r.id===action.route).name}.`; return s; }
+    if(action.type==="compile") { s.stage="schemas compiled"; s.lastChange="Provider schemas compiled. Semantic validators remain identical across adapters."; return s; }
+    if(action.type==="screen") {
+      s.stage="screen complete";
+      const ids=candidates.filter(c=>applicable(s.route,c)).map(c=>c.id);
+      s.runs=ids.map((id,i)=>result(id,{p50Ms:720+i*125,p95Ms:1280+i*210,costUsd:.0015+i*.002,quality:3+(i%3)}));
+      s.lastChange=`Recorded one broad screening pass for ${ids.length} applicable configurations.`; return s;
+    }
+    if(action.type==="fail-authorship") {
+      const id=s.route==="changed"?"luna-none":"gemini-low";
+      if(!s.runs.length) s.runs=[result(id)];
+      s.runs=s.runs.map(r=>r.candidate===id?{...r,authorshipViolation:true,quality:5}:r);
+      s.lastChange=`${candidates.find(c=>c.id===id).name} produced replacement prose or invented substance. High surface quality cannot rescue it.`; return s;
+    }
+    if(action.type==="fail-contract") {
+      const id="terra"; if(!s.runs.length) s.runs=[result(id)];
+      s.runs=s.runs.map(r=>r.candidate===id?{...r,semanticValid:false}:r);
+      s.lastChange="Terra returned a schema-valid object that failed a deterministic contract invariant and is ineligible for this route."; return s;
+    }
+    if(action.type==="pick-finalists") {
+      const eligible=candidates.filter(c=>applicable(s.route,c) && eligibility(s.runs.filter(r=>r.candidate===c.id)));
+      const cheap=[...eligible].sort((a,b)=>a.cost-b.cost||a.latency-b.latency)[0];
+      const strong=[...eligible].sort((a,b)=>b.cost-a.cost||b.latency-a.latency).find(c=>c.id!==cheap?.id);
+      s.finalists=[cheap,strong].filter(Boolean).map(c=>c.id); s.stage="finalists selected";
+      s.lastChange=s.finalists.length?`Kept ${s.finalists.map(id=>candidates.find(c=>c.id===id).name).join(" and ")} for repeated runs.`:"No eligible finalist remains; repair and rerun the screen."; return s;
+    }
+    if(action.type==="repeat") {
+      if(!s.finalists.length) return {...s,lastChange:"Select finalists before repeating runs."};
+      s.runs=s.runs.filter(r=>!s.finalists.includes(r.candidate) || r.round!=="repeat");
+      s.finalists.forEach((id,idx)=>{ for(let n=1;n<=3;n++) s.runs.push(result(id,{round:"repeat",repeat:n,quality:idx?5:4,p50Ms:idx?1350:760,p95Ms:idx?2200:1420,costUsd:idx?.016:.0022})); });
+      s.stage="finalists repeated"; s.lastChange="Each finalist now has three fresh runs on every applicable case; the view summarizes the synthetic aggregate."; return s;
+    }
+    if(action.type==="unstable") {
+      const id=s.finalists[0]||"luna-none"; if(!s.finalists.length) s.finalists=[id];
+      s.runs=s.runs.filter(r=>!(r.candidate===id&&r.round==="repeat"));
+      s.runs.push(result(id,{round:"repeat",repeat:1}),result(id,{round:"repeat",repeat:2}),result(id,{round:"repeat",repeat:3,semanticValid:false}));
+      s.lastChange="A finalist failed one of three repeats. The repeated-run gate exposes instability hidden by its successful screen."; return s;
+    }
+    if(action.type==="shared-failure") { s.ceilingNeeded=true; s.stage="diagnosis needed"; s.lastChange="All finalists missed the same hard case. Run one ceiling model once before blaming model capability or changing defaults."; return s; }
+    if(action.type==="ceiling-fails") { s.ceilingNeeded=false; s.stage="repair contract"; s.default=null; s.lastChange="The ceiling model also failed. Repair the fixture, prompt, schema, or validator, then rerun affected cases."; return s; }
+    if(action.type==="select") {
+      const repeated=s.finalists.map(id=>({id,runs:s.runs.filter(r=>r.candidate===id&&r.round==="repeat")})).filter(x=>eligibility(x.runs));
+      if(!repeated.length) return {...s,lastChange:"No finalist passes every repeated hard gate, so this route has no safe default yet."};
+      repeated.sort((a,b)=>Math.max(...a.runs.map(r=>r.p95Ms))-Math.max(...b.runs.map(r=>r.p95Ms)) || a.runs.reduce((x,r)=>x+r.costUsd,0)-b.runs.reduce((x,r)=>x+r.costUsd,0));
+      s.default=repeated[0].id; s.stage="default selected"; s.lastChange=`Selected ${candidates.find(c=>c.id===s.default).name} for this route from eligible repeated results.`; return s;
+    }
+    return s;
+  };
+  return {routes,candidates,initialState,reduce,eligibility,applicable};
+})();
+
+const actions=[
+  ["compile","Compile provider schemas"],["screen","Run one-pass screen"],["fail-authorship","Inject an authorship failure"],["fail-contract","Inject a contract failure"],
+  ["pick-finalists","Select two finalists"],["repeat","Run finalists three times"],["unstable","Make one finalist unstable"],["shared-failure","Mark a shared hard-case failure"],
+  ["ceiling-fails","Run ceiling model: it also fails"],["select","Select this route's default"],["reset","Reset the prototype"]
+];
+const scenarios=[
+  {title:"Fast challenger wins",copy:"The broad screen narrows the field. Repetition confirms the faster passing model before selection.",steps:["compile","screen","pick-finalists","repeat","select"]},
+  {title:"Authorship veto",copy:"A polished response that writes for the Writer is disqualified before cost, latency, or quality can compensate.",steps:["compile","screen","fail-authorship","pick-finalists","repeat","select"]},
+  {title:"Hidden instability",copy:"A model passes the screen, then fails one repeat. The route must keep another eligible finalist or remain undecided.",steps:["screen","pick-finalists","repeat","unstable","select"]},
+  {title:"Shared failure",copy:"When everyone misses the same case, use one ceiling run to distinguish model limits from a broken contract or case.",steps:["screen","pick-finalists","repeat","shared-failure","ceiling-fails"]},
+  {title:"Split defaults",copy:"Choose a fast changed-block default, then switch routes and evaluate Snapshot independently instead of forcing one model everywhere.",steps:["screen","pick-finalists","repeat","select"]}
+];
+let state=Evaluation.initialState(),activeScenario=0,stepIndex=0;
+const esc=s=>String(s).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function dispatch(type,walk=false){state=Evaluation.reduce(state,{type});if(walk)stepIndex++;render();}
+function aggregate(id){
+  const rr=state.runs.filter(r=>r.candidate===id), rep=rr.filter(r=>r.round==="repeat"), use=rep.length?rep:rr;
+  if(!use.length)return null;
+  return {eligible:Evaluation.eligibility(use),runs:use.length,quality:(use.reduce((a,r)=>a+r.quality,0)/use.length).toFixed(1),p95:Math.max(...use.map(r=>r.p95Ms)),cost:use.reduce((a,r)=>a+r.costUsd,0).toFixed(4)};
+}
+function render(){
+  const route=Evaluation.routes.find(r=>r.id===state.route), applicable=Evaluation.candidates.filter(c=>Evaluation.applicable(state.route,c));
+  document.querySelector("#route-name").textContent=route.name; document.querySelector("#route-meta").textContent=`${route.cases} scored invocations · selection priority: ${route.priority}`;
+  const status=document.querySelector("#route-status"); status.textContent=state.stage; status.className=`pill ${state.stage.includes("selected")?"pass":state.stage.includes("complete")||state.stage.includes("compiled")?"screen":"pending"}`;
+  const invalid=applicable.filter(c=>{const a=aggregate(c.id);return a&&!a.eligible}).length;
+  document.querySelector("#summary").innerHTML=[
+    ["8","shared packs"],["16","total invocations"],[String(applicable.length),"applicable configs"],[String(invalid),"hard-gate failures"]
+  ].map(([v,l])=>`<div class="metric"><b>${v}</b><span>${l}</span></div>`).join("");
+  document.querySelector("#last-change").textContent=state.lastChange;
+  document.querySelector("#routes").innerHTML=Evaluation.routes.map(r=>`<button class="route ${r.id===state.route?"selected":""}" data-route="${r.id}"><div class="row"><h3>${esc(r.name)}</h3><span class="pill">${r.cases} cases</span></div><p>${esc(r.priority)}</p></button>`).join("");
+  document.querySelectorAll("[data-route]").forEach(b=>b.onclick=()=>{state=Evaluation.reduce(state,{type:"route",route:b.dataset.route});stepIndex=0;render();});
+  document.querySelector("#candidates").innerHTML=applicable.map(c=>{const a=aggregate(c.id), finalist=state.finalists.includes(c.id), chosen=state.default===c.id;return `<div class="candidate ${a?(a.eligible?"pass":"fail"):""} ${chosen?"selected":""}"><div class="row"><h3>${esc(c.name)}</h3><span class="pill ${a?(a.eligible?"pass":"fail"):"pending"}">${chosen?"default":finalist?"finalist":a?(a.eligible?"eligible":"blocked"):"not run"}</span></div><p>${esc(c.scope)}${a?` · ${a.runs} scored run${a.runs===1?"":"s"} · quality ${a.quality} · p95 ${a.p95} ms · $${a.cost}`:""}</p></div>`}).join("");
+  const rows=applicable.map(c=>{const a=aggregate(c.id);return a?`<div class="scoreline"><strong>${esc(c.name)}</strong><span>${a.eligible?"pass":"FAIL"}</span><span>${a.quality}/5</span><span>${a.p95} ms</span><span>$${a.cost}</span></div>`:""}).join("");
+  document.querySelector("#results").innerHTML=rows||'<p class="note">No results yet. Compile schemas, then run the screen.</p>';
+  document.querySelector("#controls").innerHTML=actions.map(([id,label])=>`<button class="${id==="select"?"primary":""}" data-action="${id}">${label}</button>`).join("");
+  document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>dispatch(b.dataset.action));
+  document.querySelector("#tabs").innerHTML=scenarios.map((s,i)=>`<button class="${i===activeScenario?"active":""}" data-tab="${i}">${esc(s.title)}</button>`).join("");
+  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{activeScenario=+b.dataset.tab;stepIndex=0;state=Evaluation.initialState();render();});
+  const sc=scenarios[activeScenario]; document.querySelector("#scenario-title").textContent=sc.title; document.querySelector("#scenario-copy").textContent=sc.copy;
+  document.querySelector("#scenario-steps").innerHTML=sc.steps.map((id,i)=>`<button data-step="${i}" class="${i<stepIndex?"step-done":""}" ${i!==stepIndex?"disabled":""}><span class="step-number">${i+1}</span>${esc(actions.find(a=>a[0]===id)[1])}</button>`).join("");
+  document.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>dispatch(sc.steps[+b.dataset.step],true));
+  document.querySelector("#record-shape").textContent=JSON.stringify({runId:"uuid",capturedAt:"ISO-8601",contractVersion:"suggestion-analysis.v1",promptHash:"sha256",provider:"openai | anthropic | google",model:"provider model id",setting:{reasoning:"explicit"},route:"changed_block",casePack:"H-ownership-trap",caseRevision:"git sha",repeat:1,outcome:"validated | semantic_reject | provider_error | refusal | incomplete",deterministicChecks:{schema:true,requestEcho:true,evidenceAnchors:true,completeness:true,limits:true},humanReview:{blinded:true,authorshipViolation:false,quality:4,notes:"brief rationale"},timing:{firstTokenMs:null,completeObjectMs:1420},usage:{inputTokens:2400,outputAndReasoningTokens:410,costUsd:.0012},rawResponsePath:"ignored artifact path"},null,2);
+}
+render();
+</script>
+</body>
+</html>

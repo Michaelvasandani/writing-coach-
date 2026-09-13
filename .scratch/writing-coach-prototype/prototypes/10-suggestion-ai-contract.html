@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Suggestion AI contract</title>
+  <style>
+    :root{--ink:#27231f;--muted:#716a61;--paper:#f7f4ed;--panel:#fff;--line:#ddd6ca;--accent:#315f57;--soft:#e7f0ed;--warn:#8b5b18;--warnsoft:#fff0d1;--danger:#963f39;--dangersoft:#fae9e7;--code:#282724}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,sans-serif;line-height:1.45}main{width:min(1200px,calc(100% - 32px));margin:auto;padding:42px 0 80px}h1,h2,h3,p{margin-top:0}h1{max-width:900px;margin-bottom:12px;font:650 clamp(2rem,5vw,3.5rem)/1.05 Georgia,serif}h2{margin-bottom:11px;font-size:1.05rem}h3{margin-bottom:5px;font-size:.92rem}.eyebrow{margin-bottom:10px;color:var(--accent);font-size:.73rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.intro{max-width:920px;margin-bottom:24px;color:var(--muted)}.layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.8fr);gap:18px}.stack{display:grid;gap:18px;align-content:start}.panel{padding:20px;border:1px solid var(--line);border-radius:13px;background:var(--panel);box-shadow:0 8px 24px rgb(55 45 32 / 5%)}.question{border-left:4px solid var(--accent)}.subtle,.suggestion p,.event p{color:var(--muted);font-size:.87rem}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.fact{padding:9px;border-radius:8px;background:#f1eee7}.fact span{display:block;color:var(--muted);font-size:.66rem;text-transform:uppercase}.fact strong{font-size:.82rem}.tabs,.actions,.steps{display:flex;flex-wrap:wrap;gap:7px}button{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font:inherit;font-size:.82rem;font-weight:700;cursor:pointer;text-align:left}button:hover{border-color:var(--accent)}button.active,button.primary{border-color:var(--accent);background:var(--accent);color:#fff}button:disabled{opacity:.42;cursor:not-allowed}.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}.suggestion,.event{padding:12px 0;border-top:1px solid var(--line)}.suggestion:first-child,.event:first-child{padding-top:0;border-top:0}.suggestion-head{display:flex;justify-content:space-between;gap:12px}.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:var(--soft);color:var(--accent);font-size:.65rem;font-weight:800;text-transform:uppercase;white-space:nowrap}.pill.warn{background:var(--warnsoft);color:var(--warn)}.pill.bad{background:var(--dangersoft);color:var(--danger)}.meta{color:var(--muted);font-size:.7rem}.empty{color:var(--muted);font-style:italic}.schema{overflow:auto;margin:9px 0 0;padding:13px;border-radius:8px;background:var(--code);color:#f3eee5;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}.rules{margin:0;padding-left:20px;color:var(--muted);font-size:.84rem}.rules li+li{margin-top:7px}.case{padding:10px;border-radius:8px;background:#f1eee7;font-size:.8rem}.case+.case{margin-top:7px}.case b{display:block;color:var(--accent)}details{padding:12px 0;border-top:1px solid var(--line)}details:first-of-type{padding-top:0;border-top:0}summary{cursor:pointer;font-weight:750}.verdict{border-left:4px solid var(--accent);background:var(--soft)}.verdict p{margin:0;color:#315c54;font-size:.88rem}.step-done{text-decoration:line-through}.state-note{margin:12px 0 0;padding:10px;border-radius:8px;background:var(--soft);color:#315c54;font-size:.84rem}.state-note.bad{background:var(--dangersoft);color:var(--danger)}
+    @media(max-width:860px){.layout,.split{grid-template-columns:1fr}.facts{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Throwaway logic prototype</div>
+  <h1>Can Suggestions stay useful without taking over the draft?</h1>
+  <p class="intro">This demo tests a versioned Suggestion contract and its lifecycle: quiet paragraph analysis, evidence-anchored structural analysis, explicit reassessment, duplicate suppression, stale-response rejection, and a firm boundary around Draft Priorities. It is intentionally not production code.</p>
+
+  <section class="panel question">
+    <h2>Decision being tested</h2>
+    <p>Is this the smallest effective contract that can explain observable reader impact, preserve authorship, keep active feedback bounded, and supply evidence to—but never directly alter—the next requested Draft Snapshot?</p>
+  </section>
+
+  <div class="layout" style="margin-top:18px">
+    <section class="stack">
+      <article class="panel">
+        <div class="tabs" id="tabs"></div>
+        <h2 id="scenario-title"></h2><p class="subtle" id="scenario-copy"></p>
+        <div class="facts" id="facts"></div>
+        <div class="steps" id="scenario-steps"></div>
+      </article>
+
+      <article class="panel" aria-live="polite">
+        <div class="suggestion-head"><h2>Current coaching state</h2><span class="pill" id="request-state"></span></div>
+        <div class="split">
+          <div><h3>Passage Suggestions</h3><div id="passage-suggestions"></div></div>
+          <div><h3>Structural Suggestions</h3><div id="structural-suggestions"></div></div>
+        </div>
+        <div class="state-note" id="last-change"></div>
+      </article>
+
+      <article class="panel"><h2>Free play</h2><div class="actions" id="controls"></div></article>
+
+      <article class="panel">
+        <h2>What the application accepted or rejected</h2>
+        <div id="events"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Proposed Coaching Contract</h2>
+        <details open><summary>Request: full Article, explicit analysis mode, and existing state</summary><pre class="schema" id="request-contract"></pre></details>
+        <details><summary>Response: dispositions plus bounded candidates</summary><pre class="schema" id="response-contract"></pre></details>
+        <details><summary>Deterministic application rules</summary><pre class="schema">Reject the whole response unless version, request ID, mode, and Article revision match.
+Validate every block ID, block-local range, and exact quote against the live Article.
+Require exactly one disposition for every affected active Suggestion.
+changed_block: only passage scope, all primary evidence in the target block, 0..2 candidates.
+whole_article: only structural scope, 2+ ordered evidence anchors, 0..3 candidates.
+Reject low-impact candidates and questions attached above low confidence.
+Compute a duplicate group from category + scope + anchored block IDs and overlapping ranges.
+Keep one active concern per duplicate group; suppress a dismissed group until its source material or relevant Coaching Context changes.
+Assign stable IDs and apply retain/revise/retire only after every validation passes.
+Keep at most 8 active Suggestions: 5 passage + 3 structural, ordered by impact, confidence, then recency.
+Never alter Draft Snapshot scores or Priorities from this response.</pre></details>
+      </article>
+
+      <article class="panel"><h2>Compact evaluation set</h2><div id="cases"></div></article>
+    </section>
+
+    <aside class="stack">
+      <article class="panel">
+        <h2>Prompt guidance under test</h2>
+        <ol class="rules">
+          <li>Identify only observable, medium- or high-impact reader friction in the requested scope.</li>
+          <li>Use the Writer’s purpose, audience, and Coaching Context as evidence. Do not silently override conflicting context.</li>
+          <li>Separate scope from category. Categories are clarity, structure, concision, correctness, audience fit, and voice consistency.</li>
+          <li>Explain observation → reader impact → improvement direction. Do not write replacement prose or invent substance.</li>
+          <li>For correctness, flag internal inconsistency, meaning-changing usage, or a need for verification; do not claim external fact-checking.</li>
+          <li>When intent may be deliberate, emit only if reader friction is observable, lower confidence, and make any intent question visible on open.</li>
+          <li>Reassess every supplied active Suggestion in scope. Prefer zero candidates to weak, repetitive, or unactionable advice.</li>
+          <li>Do not repeat active or dismissed concerns unless the supplied source material or relevant context changed materially.</li>
+          <li>Never return scores, Priorities, replacement passages, or automatic edits.</li>
+        </ol>
+      </article>
+      <article class="panel verdict"><h2>Proposed verdict</h2><p>Use one <code>suggestion-analysis.v1</code> contract with two modes. Let the model judge reader impact and propose dispositions; let deterministic code validate, reconcile, cap, and preserve state. A requested Draft Snapshot may consume active Suggestions as secondary evidence, but remains the sole authority for up to three Priorities.</p></article>
+    </aside>
+  </div>
+</main>
+
+<script>
+// Portable prototype module: pure Suggestion state transitions and response validation.
+const SuggestionContract=(()=>{
+  const categories=["clarity","structure","concision","correctness","audience_fit","voice_consistency"];
+  const initialState=()=>({
+    article:{id:"article-a",revision:7,intent:"Explain why shaded streets matter",audience:"City residents",context:[],blocks:[
+      {id:"p1",text:"The walk home changes in July."},
+      {id:"p2",text:"Trees are good. They help in many ways. This is important for neighborhoods."},
+      {id:"p3",text:"On the unshaded route, the pavement holds heat after sunset."},
+      {id:"p4",text:"A shaded bench can turn a difficult walk into one with a place to recover."}
+    ]},
+    active:[
+      {id:"s1",scope:"passage",category:"clarity",impact:"medium",confidence:"high",blocks:["p2"],observation:"‘They’ has more than one plausible referent.",impactText:"The reader may pause to decide whether it means trees or benefits.",guidance:"Name the intended subject more precisely.",question:null,status:"active"}
+    ],dismissed:[],pending:null,events:[],lastChange:"One Passage Suggestion is active. Priorities remain unchanged."
+  });
+  const clone=x=>structuredClone(x);
+  const findBlock=(s,id)=>s.article.blocks.find(b=>b.id===id);
+  const anchor=(s,id,quote)=>{const text=findBlock(s,id).text,start=text.indexOf(quote);return{blockId:id,start,end:start+quote.length,quote}};
+  const makeRequest=(s,mode)=>({contractVersion:"suggestion-analysis.v1",requestId:`req-${s.article.revision}-${mode}`,mode,articleRevision:s.article.revision,targetBlockId:mode==="changed_block"?"p2":null});
+  const candidate=(s,o)=>({...o,evidence:o.evidence.map(e=>anchor(s,e[0],e[1]))});
+  const mockResponse=(s,kind)=>{
+    const p=s.pending,base={contractVersion:"suggestion-analysis.v1",requestId:p.requestId,mode:p.mode,articleRevision:p.articleRevision,dispositions:[],candidates:[]};
+    const affected=s.active.filter(x=>p.mode==="whole_article"?x.scope==="structure":x.scope==="passage"&&x.blocks.includes(p.targetBlockId));
+    base.dispositions=affected.map(x=>({suggestionId:x.id,disposition:kind==="resolve"?"retire":"retain",replacement:null,reason:kind==="resolve"?"The revised passage removes the ambiguity.":"The reader friction remains."}));
+    if(kind==="stale")base.articleRevision--;
+    if(kind==="duplicate")base.candidates=[candidate(s,{scope:"passage",category:"clarity",readerImpact:"medium",confidence:"high",observation:"The pronoun ‘They’ is ambiguous.",impactExplanation:"The reader must infer its referent.",guidance:"Clarify the subject.",intentQuestion:null,evidence:[["p2","They"]]})];
+    if(kind==="passage")base.candidates=[
+      candidate(s,{scope:"passage",category:"concision",readerImpact:"medium",confidence:"high",observation:"Three general statements delay the concrete point.",impactExplanation:"The reader reaches the neighborhood consequence without knowing which benefit matters.",guidance:"Choose the specific benefit this paragraph needs to advance.",intentQuestion:null,evidence:[["p2","Trees are good. They help in many ways."]]}),
+      candidate(s,{scope:"passage",category:"audience_fit",readerImpact:"medium",confidence:"low",observation:"‘This is important’ assumes the audience shares the significance.",impactExplanation:"A skeptical resident may not see the connection to daily experience.",guidance:"Make the intended neighborhood consequence explicit.",intentQuestion:"Are you relying on readers who already support urban tree programs?",evidence:[["p2","This is important for neighborhoods."]]})
+    ];
+    if(kind==="structure")base.candidates=[candidate(s,{scope:"structure",category:"structure",readerImpact:"high",confidence:"high",observation:"The concrete heat evidence appears after the general claim.",impactExplanation:"Readers meet the conclusion before seeing the experience that earns it.",guidance:"Consider whether the heat observation should establish the problem before the broader claim.",intentQuestion:null,evidence:[["p2","This is important for neighborhoods."],["p3","the pavement holds heat after sunset"]]})];
+    return base;
+  };
+  const validateAnchor=(a,s)=>{const b=findBlock(s,a.blockId);return!!b&&b.text.slice(a.start,a.end)===a.quote};
+  const groupKey=x=>`${x.category}|${x.scope}|${x.evidence.map(a=>a.blockId).join(",")}`;
+  const validate=(s,r)=>{
+    const errors=[],p=s.pending;if(!p)return["No analysis request is pending."];
+    if(r.contractVersion!=="suggestion-analysis.v1")errors.push("Unknown contract version.");
+    if(r.requestId!==p.requestId||r.mode!==p.mode)errors.push("Response does not match the pending request.");
+    if(r.articleRevision!==s.article.revision)errors.push("Response targets a stale Article revision.");
+    const affected=s.active.filter(x=>p.mode==="whole_article"?x.scope==="structure":x.scope==="passage"&&x.blocks.includes(p.targetBlockId));
+    if(affected.some(x=>r.dispositions.filter(d=>d.suggestionId===x.id).length!==1)||r.dispositions.length!==affected.length)errors.push("Each affected active Suggestion needs exactly one disposition.");
+    const cap=p.mode==="changed_block"?2:3;if(r.candidates.length>cap)errors.push("Candidate limit exceeded.");
+    r.candidates.forEach(c=>{
+      if(!categories.includes(c.category))errors.push("Unknown category.");
+      if(c.readerImpact==="low")errors.push("Low-impact advice must be omitted.");
+      if(c.intentQuestion&&c.confidence!=="low")errors.push("Intent questions require low confidence.");
+      if(p.mode==="changed_block"&&(c.scope!=="passage"||!c.evidence.some(a=>a.blockId===p.targetBlockId)))errors.push("Changed-block output must anchor Passage Suggestions in the target block.");
+      if(p.mode==="whole_article"&&(c.scope!=="structure"||c.evidence.length<2))errors.push("Whole-Article output must give Structural Suggestions at least two anchors.");
+      if(c.evidence.some(a=>!validateAnchor(a,s)))errors.push("A response contains a stale or invented anchor.");
+    });return[...new Set(errors)]
+  };
+  const applyResponse=(state,response)=>{
+    let s=clone(state),errors=validate(s,response);s.pending=null;
+    if(errors.length){s.events.unshift({tone:"bad",title:"Response rejected",text:errors.join(" ")});s.lastChange="Nothing changed because validation failed.";return s}
+    response.dispositions.forEach(d=>{const x=s.active.find(v=>v.id===d.suggestionId);if(!x)return;if(d.disposition==="retire")s.active=s.active.filter(v=>v.id!==x.id);if(d.disposition==="revise"&&d.replacement)Object.assign(x,d.replacement)});
+    const existingKeys=new Set(s.active.map(x=>`${x.category}|${x.scope}|${x.blocks.join(",")}`));
+    const dismissedKeys=new Set(s.dismissed.map(x=>x.groupKey));let added=0,suppressed=0;
+    response.candidates.forEach(c=>{const key=groupKey(c);if(existingKeys.has(key)||dismissedKeys.has(key)){suppressed++;return}const id=`s${Math.max(0,...s.active.map(x=>+x.id.slice(1)||0))+1}`;s.active.push({id,scope:c.scope,category:c.category,impact:c.readerImpact,confidence:c.confidence,blocks:c.evidence.map(a=>a.blockId),observation:c.observation,impactText:c.impactExplanation,guidance:c.guidance,question:c.intentQuestion,status:"active"});existingKeys.add(key);added++});
+    const score=x=>(x.impact==="high"?6:3)+(x.confidence==="high"?2:x.confidence==="medium"?1:0);s.active.sort((a,b)=>score(b)-score(a));
+    const passage=s.active.filter(x=>x.scope==="passage").slice(0,5),structural=s.active.filter(x=>x.scope==="structure").slice(0,3);s.active=[...passage,...structural];
+    s.events.unshift({tone:"",title:"Response accepted",text:`${added} added; ${suppressed} duplicate or dismissed concern${suppressed===1?"":"s"} suppressed. Draft Priorities did not change.`});s.lastChange="Validated Suggestions changed quietly; the Draft Snapshot remains the only Priority authority.";return s
+  };
+  const reduce=(state,action)=>{
+    let s=clone(state);if(action.type==="reset")return initialState();
+    if(action.type==="request-block"||action.type==="request-article"){s.pending=makeRequest(s,action.type==="request-block"?"changed_block":"whole_article");s.lastChange=`Captured a ${s.pending.mode} request at revision ${s.article.revision}.`;return s}
+    if(action.type.startsWith("apply-")){if(!s.pending){s.lastChange="Request analysis before applying a response.";return s}return applyResponse(s,mockResponse(s,action.type.slice(6)))}
+    if(action.type==="edit"){s.article.revision++;findBlock(s,"p2").text="Trees cool the route by shading heat-holding pavement, which gives residents a safer walk home.";s.dismissed=s.dismissed.filter(x=>!x.groupKey.split("|").at(-1).split(",").includes("p2"));s.lastChange="The target passage changed materially; old pending responses are stale and dismissal suppression for that evidence is cleared.";return s}
+    if(action.type==="dismiss"){const x=s.active.find(v=>v.scope==="passage");if(!x){s.lastChange="There is no Passage Suggestion to dismiss.";return s}s.active=s.active.filter(v=>v.id!==x.id);s.dismissed.push({groupKey:`${x.category}|${x.scope}|${x.blocks.join(",")}`,revision:s.article.revision});s.lastChange="Dismissed the concern for this source material; it stays suppressed until relevant evidence changes.";return s}
+    if(action.type==="open-uncertain"){const x=s.active.find(v=>v.question);s.lastChange=x?`Opened without interrupting drafting. Optional intent question: “${x.question}”`:"No low-confidence Suggestion with an intent question is active.";return s}
+    if(action.type==="snapshot"){s.events.unshift({tone:"",title:"Draft Snapshot requested",text:`The separate Snapshot contract received ${s.active.length} active Suggestions as secondary evidence and independently selected up to three Priorities.`});s.lastChange="Priorities may change only through this explicit Snapshot request.";return s}
+    return s
+  };
+  const requestView=s=>({contractVersion:"suggestion-analysis.v1",requestId:s.pending?.requestId||"generated-per-request",mode:s.pending?.mode||"changed_block | whole_article",article:{id:s.article.id,revision:s.article.revision,purpose:s.article.intent,audience:s.article.audience,blocks:s.article.blocks},targetBlockId:s.pending?.targetBlockId??"required only for changed_block",coachingContext:s.article.context,activeSuggestions:s.active,dismissedGroups:s.dismissed});
+  const responseView=s=>({contractVersion:"suggestion-analysis.v1",requestId:s.pending?.requestId||"echo request",mode:s.pending?.mode||"echo mode",articleRevision:s.article.revision,dispositions:[{suggestionId:"every affected active ID exactly once",disposition:"retain | revise | retire",replacement:"required only for revise",reason:"brief evidence-based reason"}],candidates:[{scope:"passage | structure",category:categories.join(" | "),readerImpact:"medium | high",confidence:"low | medium | high",observation:"what is happening",impactExplanation:"how a reader is affected",guidance:"decision or direction, never replacement prose",intentQuestion:"nullable; only with low confidence",evidence:[{blockId:"p2",start:0,end:5,quote:"exact text"}]}]});
+  return{initialState,reduce,requestView,responseView}
+})();
+
+const actions=[["request-block","Pause after editing paragraph"],["apply-passage","Apply valid Passage analysis"],["apply-duplicate","Try a duplicate concern"],["apply-resolve","Reassess after resolving the issue"],["request-article","Request whole-Article analysis"],["apply-structure","Apply Structural analysis"],["edit","Materially edit the paragraph"],["apply-stale","Try a stale response"],["dismiss","Dismiss a Passage Suggestion"],["open-uncertain","Open an uncertain Suggestion"],["snapshot","Request a fresh Draft Snapshot"],["reset","Reset prototype"]];
+const scenarios=[
+  {title:"Quiet paragraph pause",copy:"The full Article supplies context, but output stays local, bounded, and non-interrupting.",steps:["request-block","apply-passage","open-uncertain"]},
+  {title:"Duplicate suppression",copy:"A rephrased concern in the same category and anchored region should not create another card.",steps:["request-block","apply-duplicate"]},
+  {title:"Explicit retirement",copy:"A material edit triggers reassessment of the existing concern instead of silently accumulating advice.",steps:["edit","request-block","apply-resolve"]},
+  {title:"Structural evidence",copy:"Whole-Article analysis can add a structural concern only when multiple ordered passages demonstrate it.",steps:["request-article","apply-structure"]},
+  {title:"Stale response",copy:"If the Article changes after the request, every proposed change is rejected together.",steps:["request-block","edit","apply-stale"]},
+  {title:"Priority boundary",copy:"Suggestions remain evidence. Only an explicit Draft Snapshot request can select up to three Priorities.",steps:["request-block","apply-passage","request-article","apply-structure","snapshot"]}
+];
+const evalCases=[
+  ["E1 · Silence","A clear changed block returns zero candidates; no placeholder advice is created."],
+  ["E2 · Passage cap","Three candidates from changed_block fail validation; zero to two are allowed."],
+  ["E3 · Structural anchors","A Structural Suggestion with fewer than two exact ordered anchors fails."],
+  ["E4 · Existing lifecycle","Every affected active Suggestion receives exactly one retain, revise, or retire disposition."],
+  ["E5 · Duplicate","Same category, scope, and anchored region is merged rather than repeated."],
+  ["E6 · Dismissal","A dismissed group remains suppressed until its source material or relevant context changes."],
+  ["E7 · Uncertain intent","Observable friction may be low-confidence; its optional question appears only when opened."],
+  ["E8 · Correctness boundary","An unsupported claim is marked for verification, never declared externally false."],
+  ["E9 · Authorship","Observation, impact, and direction pass; replacement prose or invented evidence fails review."],
+  ["E10 · Stale response","Revision or exact-quote mismatch rejects all dispositions and candidates."],
+  ["E11 · Active cap","Only the strongest five Passage and three Structural Suggestions remain active."],
+  ["E12 · Priorities","Suggestion analysis cannot change scores or Priorities; a requested Snapshot independently selects 0..3."]
+];
+let state=SuggestionContract.initialState(),activeScenario=0,stepIndex=0;
+const esc=s=>String(s).replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function dispatch(type,walk=false){state=SuggestionContract.reduce(state,{type});if(walk)stepIndex++;render()}
+function list(scope){const xs=state.active.filter(x=>x.scope===scope);return xs.length?xs.map(x=>`<div class="suggestion"><div class="suggestion-head"><h3>${esc(x.observation)}</h3><span class="pill ${x.confidence==="low"?"warn":""}">${esc(x.category)}</span></div><p>${esc(x.impactText)}</p><div class="meta">${esc(x.id)} · ${esc(x.impact)} impact · ${esc(x.confidence)} confidence · ${esc(x.blocks.join(" → "))}</div></div>`).join(""):'<p class="empty">None active.</p>'}
+function render(){
+  document.querySelector("#tabs").innerHTML=scenarios.map((s,i)=>`<button class="${i===activeScenario?"active":""}" data-tab="${i}">${esc(s.title)}</button>`).join("");document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{activeScenario=+b.dataset.tab;stepIndex=0;state=SuggestionContract.initialState();render()});
+  const sc=scenarios[activeScenario];document.querySelector("#scenario-title").textContent=sc.title;document.querySelector("#scenario-copy").textContent=sc.copy;document.querySelector("#scenario-steps").innerHTML=sc.steps.map((id,i)=>`<button data-step="${i}" class="${i<stepIndex?"step-done":""}" ${i!==stepIndex?"disabled":""}>${i+1}. ${esc(actions.find(a=>a[0]===id)[1])}</button>`).join("");document.querySelectorAll("[data-step]").forEach(b=>b.onclick=()=>dispatch(sc.steps[+b.dataset.step],true));
+  document.querySelector("#facts").innerHTML=`<div class="fact"><span>Article revision</span><strong>${state.article.revision}</strong></div><div class="fact"><span>Active</span><strong>${state.active.length} / 8</strong></div><div class="fact"><span>Dismissed groups</span><strong>${state.dismissed.length}</strong></div><div class="fact"><span>Priorities</span><strong>unchanged</strong></div>`;
+  document.querySelector("#request-state").textContent=state.pending?`${state.pending.mode} pending`:"no request pending";document.querySelector("#passage-suggestions").innerHTML=list("passage");document.querySelector("#structural-suggestions").innerHTML=list("structure");document.querySelector("#last-change").textContent=state.lastChange;
+  document.querySelector("#controls").innerHTML=actions.map(([id,label])=>`<button class="${id.startsWith("request-")?"primary":""}" data-action="${id}">${esc(label)}</button>`).join("");document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>dispatch(b.dataset.action));
+  document.querySelector("#events").innerHTML=state.events.length?state.events.map(e=>`<div class="event"><span class="pill ${e.tone}">${esc(e.title)}</span><p>${esc(e.text)}</p></div>`).join(""):'<p class="empty">No response has been applied.</p>';
+  document.querySelector("#request-contract").textContent=JSON.stringify(SuggestionContract.requestView(state),null,2);document.querySelector("#response-contract").textContent=JSON.stringify(SuggestionContract.responseView(state),null,2);document.querySelector("#cases").innerHTML=evalCases.map(([n,e])=>`<div class="case"><b>${esc(n)}</b>${esc(e)}</div>`).join("");
+}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Draft Snapshot AI contract</title>
+  <style>
+    :root {
+      --ink: #25221f;
+      --muted: #6e6860;
+      --paper: #f7f5ef;
+      --panel: #fff;
+      --line: #ddd7cc;
+      --accent: #245f57;
+      --accent-soft: #e5f0ed;
+      --warn: #8b5913;
+      --warn-soft: #fff0cf;
+      --bad: #9b3c35;
+      --bad-soft: #fbe9e7;
+      --code: #292825;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font-family: Inter, ui-sans-serif, system-ui, sans-serif; line-height: 1.45; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 80px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 850px; margin-bottom: 12px; font: 650 clamp(2rem, 5vw, 3.6rem)/1.04 Georgia, serif; }
+    h2 { margin-bottom: 12px; font-size: 1.08rem; }
+    h3 { margin-bottom: 6px; font-size: .94rem; }
+    .eyebrow { margin-bottom: 12px; color: var(--accent); font-size: .74rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    .intro { max-width: 900px; margin-bottom: 26px; color: var(--muted); font-size: 1.02rem; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .85fr); gap: 18px; }
+    .stack { display: grid; gap: 18px; align-content: start; }
+    .panel { padding: 21px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); box-shadow: 0 8px 24px rgb(50 42 31 / 5%); }
+    .question { border-left: 4px solid var(--accent); }
+    .question p, .subtle { color: var(--muted); }
+    .tabs { display: flex; gap: 7px; margin-bottom: 16px; overflow-x: auto; }
+    button { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: #fff; font: inherit; font-size: .84rem; font-weight: 700; cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.active, button.primary { color: #fff; border-color: var(--accent); background: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 14px 0; }
+    .fact { padding: 10px; border-radius: 8px; background: #f1eee7; }
+    .fact span { display: block; color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+    .fact strong { display: block; margin-top: 3px; font-size: .84rem; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .overall { font-size: 1.7rem; font-weight: 800; color: var(--accent); }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+    .pill.wait { background: var(--warn-soft); color: var(--warn); }
+    .pill.bad { background: var(--bad-soft); color: var(--bad); }
+    .categories { display: grid; gap: 0; }
+    .category { display: grid; grid-template-columns: 120px 82px 1fr; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+    .category:last-child { border-bottom: 0; padding-bottom: 0; }
+    .category-name { font-weight: 750; }
+    .score { color: var(--accent); font-weight: 800; }
+    .explanation { margin: 0; color: var(--muted); font-size: .86rem; }
+    .evidence { display: block; margin-top: 5px; color: var(--ink); font-size: .76rem; }
+    .validation { margin-top: 12px; padding: 11px; border-radius: 8px; background: var(--accent-soft); color: #315c54; font-size: .84rem; }
+    .validation.bad { background: var(--bad-soft); color: var(--bad); }
+    .steps { display: grid; gap: 8px; margin-top: 12px; }
+    .step { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; color: var(--muted); font-size: .85rem; }
+    .step b { display: grid; width: 22px; height: 22px; place-content: center; border-radius: 50%; background: #f1eee7; color: var(--ink); font-size: .7rem; }
+    .schema { padding: 16px; border-radius: 9px; overflow: auto; background: var(--code); color: #f4f0e7; font: .73rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+    .rules { margin: 0; padding-left: 20px; color: var(--muted); font-size: .86rem; }
+    .rules li + li { margin-top: 7px; }
+    details summary { cursor: pointer; color: var(--accent); font-weight: 750; }
+    details[open] summary { margin-bottom: 12px; }
+    @media (max-width: 850px) {
+      .layout { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: 1fr 1fr; }
+      .category { grid-template-columns: 100px 72px 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Throwaway logic prototype</div>
+    <h1>Can the Draft Snapshot contract say only what the evidence supports?</h1>
+    <p class="intro">This demo tests a structured AI response in which the model makes six evidence-anchored category judgments, while application code rejects stale or invented evidence and derives the overall score. It is intentionally not production code.</p>
+
+    <section class="panel question">
+      <h2>Decision being tested</h2>
+      <p>Is this contract strict enough to produce consistent scores and useful explanations, yet expressive enough to withhold judgment on an early draft and treat an unconventional choice as a question about intent—not an automatic defect?</p>
+    </section>
+
+    <div class="layout" style="margin-top:18px">
+      <section class="stack">
+        <article class="panel">
+          <div class="tabs" id="tabs"></div>
+          <h2 id="case-title"></h2>
+          <p class="subtle" id="case-description"></p>
+          <div class="facts" id="facts"></div>
+          <div class="actions">
+            <button class="primary" id="run">Run the AI response through the contract</button>
+            <button id="break-anchor">Inject a stale evidence anchor</button>
+            <button id="reset">Reset case</button>
+          </div>
+        </article>
+
+        <article class="panel" aria-live="polite">
+          <div class="result-head">
+            <div>
+              <h2 style="margin-bottom:4px">Validated Draft Snapshot</h2>
+              <span class="pill" id="status">not run</span>
+            </div>
+            <div class="overall" id="overall">—</div>
+          </div>
+          <div class="validation" id="validation">Choose a case and run it.</div>
+          <div class="categories" id="categories"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Guided review</h2>
+          <div class="steps" id="walkthrough"></div>
+        </article>
+      </section>
+
+      <aside class="stack">
+        <article class="panel">
+          <h2>Proposed response shape</h2>
+          <div class="schema">{
+  contractVersion: "draft-snapshot.v1",
+  articleRevision: string,
+  categories: [{
+    category: six-value enum,
+    assessment:
+      | { status: "scored", score: 1..5,
+          confidence: "low" | "medium" | "high" }
+      | { status: "insufficient", score: null,
+          confidence: "insufficient" },
+    explanation: string,
+    evidence: [{ blockId, start, end, quote }],
+    intentQuestion: string | null
+  }],
+  priorities: [{
+    category, guidance, evidenceRefs
+  }] // 0..3
+}
+
+Application-derived, never model-authored:
+  valid anchors, assessable count,
+  overall score, provisional state</div>
+        </article>
+
+        <article class="panel">
+          <h2>Prompt guidance under test</h2>
+          <ol class="rules">
+            <li>Judge observed reader impact for the stated purpose and audience; never grade effort, talent, completeness, or convention-following.</li>
+            <li>Use “insufficient” when repeated behavior cannot yet be observed. Never turn missing evidence into a low score.</li>
+            <li>Support every score with exact article evidence and describe pattern → reader impact. Do not prescribe replacement prose.</li>
+            <li>If a pattern may be intentional and intent is unknown, preserve the evidence-based score, lower confidence, and ask one neutral question.</li>
+            <li>If intent is known, judge whether the choice achieves that intent. Keep any remaining reader friction visible.</li>
+            <li>Return exactly one result for each category. Select no more than three high-impact priorities from scored categories only.</li>
+          </ol>
+        </article>
+
+        <article class="panel">
+          <details>
+            <summary>Why derive the overall score?</summary>
+            <p class="subtle">The model has no discretion to contradict its own categories. The application shows no overall score until at least four categories are assessable; otherwise it averages category scores and converts the result to 0–100. Any low-confidence category makes the result provisional.</p>
+          </details>
+        </article>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    // Portable prototype module: pure validation and snapshot derivation.
+    const SnapshotContract = (() => {
+      const categoryOrder = ["clarity", "structure", "concision", "correctness", "audienceFit", "voiceConsistency"];
+      const labels = {
+        clarity: "Clarity", structure: "Structure", concision: "Concision",
+        correctness: "Correctness", audienceFit: "Audience fit", voiceConsistency: "Voice consistency"
+      };
+
+      function validateAnchor(anchor, article) {
+        const block = article.blocks.find(item => item.id === anchor.blockId);
+        return Boolean(block && block.text.slice(anchor.start, anchor.end) === anchor.quote);
+      }
+
+      function validate(response, article) {
+        const errors = [];
+        if (response.contractVersion !== "draft-snapshot.v1") errors.push("Unknown contract version.");
+        if (response.articleRevision !== article.revision) errors.push("Response targets a stale article revision.");
+        const found = response.categories.map(item => item.category);
+        if (found.length !== categoryOrder.length || categoryOrder.some(name => found.filter(value => value === name).length !== 1)) {
+          errors.push("Response must contain each category exactly once.");
+        }
+        response.categories.forEach(item => {
+          const a = item.assessment;
+          if (a.status === "insufficient" && (a.score !== null || a.confidence !== "insufficient")) {
+            errors.push(`${labels[item.category]} mixes an insufficient judgment with a score.`);
+          }
+          if (a.status === "scored" && (!Number.isInteger(a.score) || a.score < 1 || a.score > 5 || !["low", "medium", "high"].includes(a.confidence))) {
+            errors.push(`${labels[item.category]} has an invalid scored judgment.`);
+          }
+          if (a.status === "scored" && item.evidence.length === 0) errors.push(`${labels[item.category]} has no evidence.`);
+          item.evidence.forEach(anchor => {
+            if (!validateAnchor(anchor, article)) errors.push(`${labels[item.category]} contains a stale or invented evidence anchor.`);
+          });
+          if (item.intentQuestion && a.confidence !== "low") errors.push(`${labels[item.category]} asks about intent without low confidence.`);
+        });
+        if (response.priorities.length > 3) errors.push("Response contains more than three priorities.");
+        return [...new Set(errors)];
+      }
+
+      function derive(response, article) {
+        const errors = validate(response, article);
+        if (errors.length) return { accepted: false, errors, categories: [], overall: null, provisional: true };
+        const scored = response.categories.filter(item => item.assessment.status === "scored");
+        const overall = scored.length < 4 ? null : Math.round(scored.reduce((sum, item) => sum + item.assessment.score, 0) / scored.length * 20);
+        const provisional = overall === null || scored.some(item => item.assessment.confidence === "low");
+        return { accepted: true, errors: [], categories: response.categories, overall, provisional };
+      }
+
+      return { derive, labels };
+    })();
+
+    const allCategories = ["clarity", "structure", "concision", "correctness", "audienceFit", "voiceConsistency"];
+    const block = (id, text) => ({ id, text });
+    const anchor = (article, blockId, quote) => {
+      const text = article.blocks.find(item => item.id === blockId).text;
+      const start = text.indexOf(quote);
+      return { blockId, start, end: start + quote.length, quote };
+    };
+    const insufficient = (category, explanation) => ({
+      category,
+      assessment: { status: "insufficient", score: null, confidence: "insufficient" },
+      explanation,
+      evidence: [],
+      intentQuestion: null
+    });
+    const scored = (article, category, score, confidence, explanation, blockId, quote, intentQuestion = null) => ({
+      category,
+      assessment: { status: "scored", score, confidence },
+      explanation,
+      evidence: [anchor(article, blockId, quote)],
+      intentQuestion
+    });
+
+    function cases() {
+      const early = { revision: "rev-early", words: 92, intent: "Explain why urban shade matters to summer walkers", audience: "City residents", context: "None", blocks: [block("p1", "The walk home changes in July. One side of the avenue offers trees. The other side offers nowhere to pause.")] };
+      const mature = { revision: "rev-mature", words: 1180, intent: "Help first-time gardeners avoid overwatering", audience: "Apartment gardeners", context: "Practical and reassuring", blocks: [block("p7", "Watering every morning feels attentive, but wet roots cannot breathe. Check the soil two knuckles deep before reaching for the can."), block("p11", "Check first. Check the soil before adding more water. This check prevents the most common mistake.")] };
+      const unknown = { revision: "rev-fragments", words: 980, intent: "Show the stop-start feeling of returning home", audience: "General readers", context: "No explanation of the fragments", blocks: [block("p4", "Door. Hallway. The old clock. Then nothing where the photographs had been."), block("p5", "I moved through the rooms and tried to decide whether the silence felt empty or simply finished.")] };
+      const explained = { revision: "rev-explained", words: 980, intent: "Show the stop-start feeling of returning home", audience: "General readers", context: "Writer says the fragments should mimic involuntary flashes; the long final sentence should release the tension", blocks: [block("p4", "Door. Hallway. The old clock. Then nothing where the photographs had been."), block("p5", "I moved through the rooms and tried to decide whether the silence felt empty or simply finished.")] };
+
+      return [
+        {
+          title: "Early sketch",
+          description: "Only clarity has enough local evidence. The contract must withhold five category scores and the overall score without calling the sketch weak.",
+          article: early,
+          response: {
+            contractVersion: "draft-snapshot.v1", articleRevision: early.revision,
+            categories: [
+              scored(early, "clarity", 4, "medium", "The contrast between the shaded and exposed sides makes the immediate point easy to follow; the article's larger claim has not appeared yet.", "p1", "One side of the avenue offers trees."),
+              insufficient("structure", "There is not yet enough article shape to observe how sections serve the purpose."),
+              insufficient("concision", "There is not enough repeated wording to distinguish a pattern from an isolated choice."),
+              insufficient("correctness", "The sample is too short to identify a recurring mechanical pattern."),
+              insufficient("audienceFit", "The sketch does not yet provide enough explanation or detail to judge the fit for city residents."),
+              insufficient("voiceConsistency", "A recognizable voice may be emerging, but consistency cannot be observed yet.")
+            ], priorities: []
+          },
+          watch: ["No category receives a low score merely because the draft is short.", "The one supported judgment can still be useful.", "The overall score remains withheld because fewer than four categories are assessable."]
+        },
+        {
+          title: "Mature draft",
+          description: "A complete article supports all six judgments. Repetition can lower concision while clarity and audience fit remain strong.",
+          article: mature,
+          response: {
+            contractVersion: "draft-snapshot.v1", articleRevision: mature.revision,
+            categories: [
+              scored(mature, "clarity", 4, "high", "The causal claim is explicit and the action is concrete, so readers can follow both reason and remedy.", "p7", "wet roots cannot breathe"),
+              scored(mature, "structure", 4, "medium", "The advice moves from misconception to explanation to action; this paragraph makes that local sequence visible.", "p7", "Check the soil two knuckles deep"),
+              scored(mature, "concision", 3, "high", "The repeated instruction dilutes emphasis in this section even though the core advice remains easy to find.", "p11", "Check first. Check the soil before adding more water."),
+              scored(mature, "correctness", 5, "high", "Mechanics consistently keep the practical guidance effortless to read.", "p7", "Check the soil two knuckles deep before reaching for the can."),
+              scored(mature, "audienceFit", 5, "high", "The physical check gives first-time gardeners a usable cue without assuming specialist knowledge.", "p7", "two knuckles deep"),
+              scored(mature, "voiceConsistency", 4, "medium", "The direct, reassuring voice stays recognizable while explaining the risk plainly.", "p7", "Watering every morning feels attentive")
+            ],
+            priorities: [{ category: "concision", guidance: "Decide which statement of the soil-check instruction should carry the emphasis.", evidenceRefs: ["p11"] }]
+          },
+          watch: ["Category scores can diverge because they describe different reader effects.", "Every score points to exact article language.", "The priority guides a decision without supplying replacement prose."]
+        },
+        {
+          title: "Intent unknown",
+          description: "Fragments may be purposeful. The Coach preserves the observed result, lowers confidence, and asks before interpreting the convention-break as a weakness.",
+          article: unknown,
+          response: {
+            contractVersion: "draft-snapshot.v1", articleRevision: unknown.revision,
+            categories: [
+              scored(unknown, "clarity", 4, "medium", "The concrete images are individually clear and the missing photographs establish the change.", "p4", "Then nothing where the photographs had been."),
+              scored(unknown, "structure", 3, "low", "The abrupt fragments slow the connection into the reflective sentence; their intended role is not yet known.", "p4", "Door. Hallway. The old clock.", "What effect do you want the fragments to create before the longer reflection?"),
+              scored(unknown, "concision", 4, "medium", "The compressed images carry distinct information without explanatory repetition.", "p4", "Door. Hallway. The old clock."),
+              scored(unknown, "correctness", 4, "medium", "The fragments depart from sentence convention but remain readable as a deliberate-looking pattern.", "p4", "Door. Hallway. The old clock."),
+              scored(unknown, "audienceFit", 4, "medium", "The familiar domestic images give general readers enough context to enter the scene.", "p4", "The old clock."),
+              scored(unknown, "voiceConsistency", 3, "low", "The shift from clipped images to a long reflection is noticeable, but the intended rhythm is unknown.", "p5", "I moved through the rooms", "Should the longer sentence feel like a release from the clipped arrival, or should the rhythm stay fractured?")
+            ], priorities: [],
+          },
+          watch: ["Unconventional form is not itself the reason for a low score.", "Unknown intent appears as low confidence plus a neutral question.", "The Coach does not invent a rationale for the Writer."]
+        },
+        {
+          title: "Intent explained",
+          description: "The Writer's explanation changes interpretation, not the evidence. The fragments work for the stated purpose, while a remaining transition cost stays visible.",
+          article: explained,
+          response: {
+            contractVersion: "draft-snapshot.v1", articleRevision: explained.revision,
+            categories: [
+              scored(explained, "clarity", 4, "high", "The concrete flashes establish both the remembered space and the changed room without extra explanation.", "p4", "Then nothing where the photographs had been."),
+              scored(explained, "structure", 3, "medium", "The fragments achieve the intended stop-start arrival, but the move into reflection still asks readers to bridge an abrupt turn.", "p5", "I moved through the rooms"),
+              scored(explained, "concision", 4, "high", "Each compressed image adds a distinct beat, so the brevity serves the intended rhythm.", "p4", "Door. Hallway. The old clock."),
+              scored(explained, "correctness", 4, "high", "The fragments are legible as a controlled pattern that serves the stated effect rather than accidental breakage.", "p4", "Door. Hallway. The old clock."),
+              scored(explained, "audienceFit", 4, "high", "The scene supplies enough concrete context for a general reader to follow the emotional turn.", "p4", "The old clock."),
+              scored(explained, "voiceConsistency", 4, "high", "The shift from clipped flashes to the longer sentence creates the release the Writer described and remains recognizably reflective.", "p5", "whether the silence felt empty or simply finished")
+            ], priorities: [{ category: "structure", guidance: "Check whether the turn into reflection should remain this abrupt for the intended release.", evidenceRefs: ["p4", "p5"] }]
+          },
+          watch: ["Writer context raises interpretive confidence; it does not force a favorable result.", "The achieved rhythm is credited.", "Residual reader friction remains eligible for a score and priority."]
+        }
+      ];
+    }
+
+    let caseIndex = 0;
+    let response = null;
+    let result = null;
+    const calibrationCases = cases();
+
+    function clone(value) { return JSON.parse(JSON.stringify(value)); }
+    function run() {
+      response = clone(calibrationCases[caseIndex].response);
+      result = SnapshotContract.derive(response, calibrationCases[caseIndex].article);
+      render();
+    }
+    function breakAnchor() {
+      if (!response) response = clone(calibrationCases[caseIndex].response);
+      const item = response.categories.find(category => category.evidence.length);
+      item.evidence[0].quote += " [old text]";
+      result = SnapshotContract.derive(response, calibrationCases[caseIndex].article);
+      render();
+    }
+    function selectCase(index) { caseIndex = index; response = null; result = null; render(); }
+
+    function render() {
+      const item = calibrationCases[caseIndex];
+      document.querySelector("#tabs").innerHTML = calibrationCases.map((entry, index) => `<button class="${index === caseIndex ? "active" : ""}" data-case="${index}">${entry.title}</button>`).join("");
+      document.querySelectorAll("[data-case]").forEach(button => button.onclick = () => selectCase(Number(button.dataset.case)));
+      document.querySelector("#case-title").textContent = item.title;
+      document.querySelector("#case-description").textContent = item.description;
+      const factRows = [["Words", item.article.words.toLocaleString()], ["Purpose", item.article.intent], ["Audience", item.article.audience], ["Writer context", item.article.context]];
+      document.querySelector("#facts").innerHTML = factRows.map(([name, value]) => `<div class="fact"><span>${name}</span><strong>${value}</strong></div>`).join("");
+      document.querySelector("#walkthrough").innerHTML = item.watch.map((text, index) => `<div class="step"><b>${index + 1}</b><span>${text}</span></div>`).join("");
+
+      const status = document.querySelector("#status");
+      const validation = document.querySelector("#validation");
+      if (!result) {
+        status.className = "pill wait"; status.textContent = "not run";
+        validation.className = "validation"; validation.textContent = "Run the canned AI response to see whether the application accepts it.";
+        document.querySelector("#overall").textContent = "—";
+        document.querySelector("#categories").innerHTML = "";
+        return;
+      }
+      if (!result.accepted) {
+        status.className = "pill bad"; status.textContent = "rejected";
+        validation.className = "validation bad"; validation.textContent = result.errors.join(" ");
+        document.querySelector("#overall").textContent = "—";
+        document.querySelector("#categories").innerHTML = "";
+        return;
+      }
+      status.className = `pill ${result.provisional ? "wait" : ""}`;
+      status.textContent = result.provisional ? "provisional" : "accepted";
+      validation.className = "validation";
+      validation.textContent = result.overall === null ? "Valid response. Overall score withheld: fewer than four categories are assessable." : "Valid response. All evidence anchors match the current article revision.";
+      document.querySelector("#overall").textContent = result.overall === null ? "No overall" : `${result.overall} / 100`;
+      document.querySelector("#categories").innerHTML = result.categories.map(entry => {
+        const a = entry.assessment;
+        const evidence = entry.evidence.map(ref => `“${ref.quote}”`).join(" · ");
+        return `<div class="category"><div class="category-name">${SnapshotContract.labels[entry.category]}</div><div><div class="score">${a.score === null ? "Not scored" : `${a.score} / 5`}</div><span class="pill ${a.confidence === "insufficient" || a.confidence === "low" ? "wait" : ""}">${a.confidence}</span></div><p class="explanation">${entry.explanation}${evidence ? `<span class="evidence">Evidence: ${evidence}</span>` : ""}${entry.intentQuestion ? `<span class="evidence">Question: ${entry.intentQuestion}</span>` : ""}</p></div>`;
+      }).join("");
+    }
+
+    document.querySelector("#run").onclick = run;
+    document.querySelector("#break-anchor").onclick = breakAnchor;
+    document.querySelector("#reset").onclick = () => selectCase(caseIndex);
+    render();
+  </script>
+</body>
+</html>

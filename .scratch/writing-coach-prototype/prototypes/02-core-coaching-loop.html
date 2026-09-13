@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Core coaching loop</title>
+  <!-- Three variants of the writing-coach workspace, switchable via ?variant=A|B|C. -->
+  <style>
+    :root {
+      --paper: #f6f3ed;
+      --sheet: #fffdfa;
+      --ink: #25241f;
+      --muted: #706d64;
+      --line: #dcd7cd;
+      --forest: #245746;
+      --forest-soft: #e5efe9;
+      --amber: #9b6419;
+      --amber-soft: #fff1d5;
+      --blue: #315d75;
+      --blue-soft: #e4eef4;
+      --rose: #87524d;
+      --rose-soft: #f7e9e6;
+      --shadow: 0 18px 55px rgb(55 49 39 / 10%);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    button { appearance: none; border: 0; color: inherit; background: none; font: inherit; cursor: pointer; }
+    h1, h2, h3, p { margin-top: 0; }
+    .hidden { display: none !important; }
+    .serif { font-family: Georgia, 'Times New Roman', serif; }
+    .eyebrow { color: var(--forest); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .muted { color: var(--muted); }
+    .icon-button { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
+    .pill { display: inline-flex; gap: 6px; align-items: center; padding: 5px 9px; border-radius: 999px; color: var(--forest); background: var(--forest-soft); font-size: 11px; font-weight: 750; }
+    .count { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; color: white; background: var(--forest); font-size: 11px; font-weight: 800; }
+    .suggestion-mark { border-bottom: 2px solid #d69b45; background: linear-gradient(transparent 72%, #fff0c8 72%); cursor: pointer; }
+    .suggestion-mark.active { border-bottom-color: var(--forest); background: linear-gradient(transparent 65%, #dcece3 65%); }
+    .suggestion-mark.structure { border-bottom-color: #6b8da0; background: linear-gradient(transparent 72%, #e2eef4 72%); }
+
+    .global-head { display: flex; height: 58px; padding: 0 22px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: rgb(255 253 250 / 92%); }
+    .brand { display: flex; gap: 10px; align-items: center; font-weight: 780; letter-spacing: -.02em; }
+    .brand-mark { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 9px 9px 9px 2px; color: white; background: var(--forest); font-family: Georgia, serif; }
+    .head-status { display: flex; gap: 14px; align-items: center; color: var(--muted); font-size: 12px; }
+    .saved::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #4f9475; }
+
+    .draft-title { width: 100%; margin: 0 0 26px; border: 0; outline: 0; color: var(--ink); background: transparent; font: 650 38px/1.08 Georgia, serif; }
+    .draft { outline: none; font: 19px/1.75 Georgia, serif; }
+    .draft p { margin: 0 0 22px; }
+    .draft:focus { outline: none; }
+    .draft-footer { display: flex; margin-top: 38px; padding-top: 15px; justify-content: space-between; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+
+    .coach-tabs { display: flex; gap: 3px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+    .coach-tab { padding: 13px 9px 11px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .coach-tab.active { border-bottom-color: var(--forest); color: var(--forest); }
+    .panel-page { display: none; }
+    .panel-page.active { display: block; }
+    .coach-card { padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--sheet); }
+    .coach-card + .coach-card { margin-top: 10px; }
+    .coach-card h3 { margin-bottom: 7px; font-size: 13px; }
+    .coach-card p { margin-bottom: 10px; color: var(--muted); font-size: 12.5px; line-height: 1.48; }
+    .coach-card.selected { border-color: #99b5a8; box-shadow: 0 0 0 3px var(--forest-soft); }
+    .priority-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .priority-row:last-child { border-bottom: 0; }
+    .priority-num { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: var(--forest); background: var(--forest-soft); font-size: 11px; font-weight: 850; }
+    .priority-row strong { display: block; font-size: 12.5px; }
+    .priority-row small { color: var(--muted); }
+    .link-button { color: var(--forest); font-size: 12px; font-weight: 750; }
+    .primary-button, .secondary-button { display: inline-flex; padding: 9px 11px; align-items: center; justify-content: center; border-radius: 8px; font-size: 12px; font-weight: 760; }
+    .primary-button { color: white; background: var(--forest); }
+    .secondary-button { border: 1px solid var(--line); background: var(--sheet); }
+    .card-actions { display: flex; gap: 7px; }
+    .snapshot-score { display: flex; gap: 14px; align-items: center; }
+    .score-ring { display: grid; width: 58px; height: 58px; flex: 0 0 auto; place-items: center; border: 6px solid var(--forest-soft); border-top-color: var(--forest); border-radius: 50%; color: var(--forest); font-weight: 850; }
+    .meter { height: 5px; margin: 6px 0 12px; overflow: hidden; border-radius: 5px; background: #ebe7de; }
+    .meter span { display: block; height: 100%; border-radius: inherit; background: var(--forest); }
+
+    /* A — calm split workspace */
+    .variant-a { min-height: 100vh; }
+    .a-shell { display: grid; grid-template-columns: minmax(520px, 1fr) 350px; min-height: calc(100vh - 58px); }
+    .a-editor-wrap { display: grid; grid-template-columns: 54px minmax(0, 690px) 1fr; padding: 52px 24px 100px; }
+    .a-rail { display: flex; gap: 17px; align-items: center; flex-direction: column; padding-top: 86px; }
+    .a-rail-dot { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; color: var(--amber); background: var(--amber-soft); font-size: 11px; font-weight: 850; }
+    .a-rail-dot.structure { color: var(--blue); background: var(--blue-soft); }
+    .a-paper { padding: 0 34px; }
+    .a-coach { position: sticky; top: 0; height: calc(100vh - 58px); border-left: 1px solid var(--line); background: #f9f7f2; }
+    .a-coach-head { display: flex; height: 61px; padding: 0 17px; align-items: center; justify-content: space-between; }
+    .a-panel-scroll { height: calc(100% - 105px); padding: 15px; overflow: auto; }
+    .active-callout { margin-bottom: 12px; padding: 12px; border-radius: 10px; background: var(--amber-soft); font-size: 12px; line-height: 1.45; }
+
+    /* B — editor-first canvas and coach dock */
+    .variant-b { min-height: 100vh; background: #eceae5; }
+    .b-workspace { position: relative; min-height: calc(100vh - 58px); padding: 34px 24px 130px; }
+    .b-toolbar { display: flex; width: min(920px, 100%); margin: 0 auto 12px; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
+    .b-paper { width: min(920px, 100%); min-height: 760px; margin: 0 auto; padding: 64px 108px 120px; background: var(--sheet); box-shadow: var(--shadow); }
+    .b-margin-note { position: absolute; right: -80px; width: 58px; color: var(--amber); font-size: 10px; line-height: 1.2; }
+    .b-margin-note::before { content: ''; position: absolute; left: -14px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+    .variant-a .b-margin-note, .variant-c .b-margin-note { display: none; }
+    .b-paragraph { position: relative; }
+    .b-dock { position: fixed; z-index: 5; right: 24px; bottom: 66px; left: 24px; max-height: 74vh; border: 1px solid #bdb7ac; border-radius: 18px; background: var(--sheet); box-shadow: 0 20px 70px rgb(35 31 25 / 24%); transition: transform .2s ease; }
+    .b-dock.collapsed { left: 50%; width: min(720px, calc(100% - 48px)); transform: translateX(-50%); }
+    .b-dock-bar { display: flex; min-height: 54px; padding: 9px 12px 9px 18px; gap: 14px; align-items: center; }
+    .b-dock-summary { display: flex; min-width: 0; flex: 1; gap: 12px; align-items: center; }
+    .b-dock-summary strong { font-size: 13px; }
+    .b-dock-summary span { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .b-dock-body { display: grid; grid-template-columns: 210px 1fr; max-height: calc(74vh - 54px); border-top: 1px solid var(--line); }
+    .b-dock-nav { padding: 16px; border-right: 1px solid var(--line); }
+    .b-dock-nav button { width: 100%; padding: 10px; border-radius: 8px; text-align: left; font-size: 12px; font-weight: 700; }
+    .b-dock-nav button.active { color: var(--forest); background: var(--forest-soft); }
+    .b-dock-content { padding: 20px; overflow: auto; }
+    .b-card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+    /* C — guided revision passes */
+    .variant-c { min-height: 100vh; background: #f5f1e9; }
+    .c-shell { display: grid; grid-template-columns: 212px minmax(500px, 1fr) 320px; min-height: calc(100vh - 58px); }
+    .c-passes { padding: 24px 14px; border-right: 1px solid var(--line); background: #2e3934; color: white; }
+    .c-passes .eyebrow { margin: 4px 9px 18px; color: #a9c8b9; }
+    .pass { display: flex; width: 100%; margin-bottom: 6px; padding: 12px 10px; gap: 10px; align-items: center; border-radius: 9px; color: #d6ded9; text-align: left; font-size: 12px; }
+    .pass.active { color: white; background: #486157; }
+    .pass-index { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 1px solid rgb(255 255 255 / 20%); border-radius: 7px; font-size: 10px; }
+    .pass.done .pass-index { color: #25352e; border-color: #9dcab5; background: #9dcab5; }
+    .c-progress { margin: 26px 10px 0; color: #aebbb5; font-size: 11px; line-height: 1.5; }
+    .c-progress .meter { background: #4a5751; }
+    .c-progress .meter span { background: #a6cbb9; }
+    .c-editor-wrap { padding: 42px 48px 110px; }
+    .c-paper { width: min(700px, 100%); margin: 0 auto; }
+    .pass-banner { display: flex; margin-bottom: 35px; padding: 12px 14px; gap: 12px; align-items: center; border-left: 3px solid var(--blue); color: var(--blue); background: var(--blue-soft); font-size: 12px; }
+    .c-coach { padding: 20px 14px 90px; border-left: 1px solid var(--line); background: var(--sheet); }
+    .c-coach h2 { margin: 4px 4px 5px; font: 650 23px/1.1 Georgia, serif; }
+    .c-coach > p { margin: 0 4px 20px; font-size: 12px; }
+
+    .thought-overlay { position: fixed; z-index: 12; inset: 0; display: grid; padding: 22px; place-items: center; background: rgb(24 29 26 / 62%); }
+    .thought-dialog { width: min(650px, 100%); padding: 28px; border-radius: 18px; background: var(--sheet); box-shadow: var(--shadow); }
+    .thought-dialog h2 { margin-bottom: 9px; font: 650 29px/1.15 Georgia, serif; }
+    .thought-question { margin: 20px 0; padding: 18px; border-left: 3px solid var(--forest); background: var(--forest-soft); font: 18px/1.45 Georgia, serif; }
+    .thought-dialog textarea { width: 100%; min-height: 110px; padding: 12px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: white; font: 14px/1.5 inherit; }
+    .dialog-actions { display: flex; margin-top: 12px; gap: 8px; justify-content: flex-end; }
+
+    .prototype-switcher { position: fixed; z-index: 30; bottom: 14px; left: 50%; display: flex; padding: 5px; gap: 5px; align-items: center; transform: translateX(-50%); border: 1px solid rgb(255 255 255 / 18%); border-radius: 999px; color: white; background: #171916; box-shadow: 0 10px 35px rgb(0 0 0 / 28%); }
+    .prototype-switcher button { display: grid; min-width: 34px; height: 34px; padding: 0 10px; place-items: center; border-radius: 999px; color: white; }
+    .prototype-switcher button:hover { background: #353a34; }
+    .variant-label { min-width: 190px; padding: 0 10px; text-align: center; font-size: 12px; font-weight: 750; }
+
+    @media (max-width: 900px) {
+      .a-shell { grid-template-columns: 1fr; }
+      .a-coach { position: relative; height: auto; border-top: 1px solid var(--line); border-left: 0; }
+      .a-editor-wrap { grid-template-columns: 38px 1fr; }
+      .c-shell { grid-template-columns: 70px 1fr; }
+      .c-passes { padding: 20px 8px; }
+      .c-passes .eyebrow, .pass-copy, .c-progress { display: none; }
+      .pass { justify-content: center; }
+      .c-coach { grid-column: 2; border-top: 1px solid var(--line); border-left: 0; }
+      .b-paper { padding: 52px 60px 120px; }
+      .b-card-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <template id="shared-draft">
+    <input class="draft-title" value="The useful kind of friction" aria-label="Article title">
+    <div class="draft" contenteditable="true" aria-label="Article draft">
+      <p>For years, I thought good tools should disappear. The best interface, I believed, was the one that never made you stop and think.</p>
+      <p>Then I spent a month working with a notebook that <span class="suggestion-mark" data-suggestion="opening">made every small decision slightly harder</span>. It had no search, no undo, and no helpful prompts. Yet my notes became clearer.</p>
+      <p class="b-paragraph">The inconvenience was not automatically useful. Most friction is just friction. <span class="suggestion-mark structure" data-suggestion="bridge">What mattered was the pause between impulse and commitment</span>: I had to decide whether an idea deserved the page.<span class="b-margin-note">Structure<br>bridge</span></p>
+      <p>That distinction gives us a better question for technology. Instead of asking whether a tool is effortless, we can ask which kinds of effort help us notice what we are doing.</p>
+      <p>I still want my calendar to remember appointments and my camera to focus itself. But when the work is choosing, shaping, or understanding, a little resistance may be part of the instrument.</p>
+    </div>
+    <div class="draft-footer"><span>378 words · Draft</span><span>Analyzed a moment ago</span></div>
+  </template>
+
+  <template id="priorities">
+    <div class="priority-row"><span class="priority-num">1</span><div><strong>Sharpen the article's promise</strong><small>Opening · highest leverage</small></div><button class="link-button jump-opening">View</button></div>
+    <div class="priority-row"><span class="priority-num">2</span><div><strong>Earn the turn from notebook to principle</strong><small>Middle · structure</small></div><button class="link-button jump-bridge">View</button></div>
+    <div class="priority-row"><span class="priority-num">3</span><div><strong>Make the final distinction concrete</strong><small>Ending · specificity</small></div><button class="link-button">View</button></div>
+  </template>
+
+  <template id="suggestion-detail">
+    <article class="coach-card selected suggestion-detail">
+      <span class="pill">Clarity · opening</span>
+      <h3 style="margin-top:10px">The phrase hides the interesting contrast</h3>
+      <p>“Slightly harder” is broad. The next paragraph reveals that the useful constraint was having to commit. Naming that distinction sooner may make the story's direction easier to see.</p>
+      <div class="card-actions"><button class="primary-button explain-button">Explain my choice</button><button class="secondary-button">Dismiss</button></div>
+    </article>
+  </template>
+
+  <template id="snapshot">
+    <article class="coach-card">
+      <div class="snapshot-score"><div class="score-ring">3.7</div><div><h3>Draft Snapshot</h3><p>Working draft · enough evidence in 5 of 6 areas</p></div></div>
+      <h3>Clarity · 4</h3><div class="meter"><span style="width:80%"></span></div>
+      <h3>Structure · 3</h3><div class="meter"><span style="width:60%"></span></div>
+      <h3>Audience fit · 4</h3><div class="meter"><span style="width:80%"></span></div>
+      <p>Voice consistency needs more evidence before scoring.</p>
+      <button class="secondary-button">Refresh snapshot</button>
+    </article>
+  </template>
+
+  <script>
+    const variants = {
+      A: { name: 'Quiet split workspace' },
+      B: { name: 'Editor-first Coach dock' },
+      C: { name: 'Guided revision passes' }
+    };
+    const state = { variant: getVariant(), tab: 'priorities', suggestion: 'opening', dockOpen: false, pass: 'structure', thoughtOpen: false };
+
+    function getVariant() {
+      const key = new URLSearchParams(location.search).get('variant')?.toUpperCase();
+      return variants[key] ? key : 'A';
+    }
+
+    function header() {
+      return `<header class="global-head"><div class="brand"><span class="brand-mark">w</span>Quiet Draft</div><div class="head-status"><span class="saved">Saved locally</span><span>Focus mode</span><button class="icon-button" aria-label="More">•••</button></div></header>`;
+    }
+
+    function draft() { return document.querySelector('#shared-draft').innerHTML; }
+    function priorities() { return document.querySelector('#priorities').innerHTML; }
+    function suggestion() {
+      if (state.suggestion === 'bridge') {
+        return `<article class="coach-card selected suggestion-detail"><span class="pill" style="color:var(--blue);background:var(--blue-soft)">Structure · middle</span><h3 style="margin-top:10px">The principle arrives before the bridge is secure</h3><p>The notebook changes your mind, but the causal step is compressed. Show what you noticed while making those slower choices so the turn feels earned.</p><div class="card-actions"><button class="primary-button explain-button">Explain my choice</button><button class="secondary-button">Dismiss</button></div></article>`;
+      }
+      return document.querySelector('#suggestion-detail').innerHTML;
+    }
+    function snapshot() { return document.querySelector('#snapshot').innerHTML; }
+
+    function tabs() {
+      return `<nav class="coach-tabs">
+        <button class="coach-tab ${state.tab === 'priorities' ? 'active' : ''}" data-tab="priorities">Priorities</button>
+        <button class="coach-tab ${state.tab === 'suggestions' ? 'active' : ''}" data-tab="suggestions">Suggestions <span class="count" style="display:inline-grid">4</span></button>
+        <button class="coach-tab ${state.tab === 'snapshot' ? 'active' : ''}" data-tab="snapshot">Snapshot</button>
+      </nav>`;
+    }
+
+    function panelContent() {
+      if (state.tab === 'snapshot') return snapshot();
+      if (state.tab === 'suggestions') return `<div class="active-callout">Click an underline in the draft to move between passage-level suggestions.</div>${suggestion()}<article class="coach-card"><span class="pill" style="color:var(--blue);background:var(--blue-soft)">Structure · middle</span><h3 style="margin-top:10px">The principle arrives before the bridge is secure</h3><p>Show why the notebook experience changed your earlier belief.</p></article>`;
+      return `<article class="coach-card"><h3>Your three priorities</h3><p>These are the highest-leverage changes for this draft. They update only when you request a new Snapshot.</p>${priorities()}</article><article class="coach-card"><h3>Need to develop the thinking first?</h3><p>Start a focused conversation before changing the prose. The Coach asks; you supply the substance.</p><button class="secondary-button thought-button">Start Thought Development</button></article>`;
+    }
+
+    function renderA() {
+      return `<div class="variant-a">${header()}<div class="a-shell"><main class="a-editor-wrap"><aside class="a-rail"><button class="a-rail-dot" data-suggestion="opening">2</button><button class="a-rail-dot structure" data-suggestion="bridge">1</button></aside><article class="a-paper">${draft()}</article></main><aside class="a-coach"><div class="a-coach-head"><div><div class="eyebrow">Coach panel</div><strong>Draft guidance</strong></div><span class="pill">Ready</span></div>${tabs()}<div class="a-panel-scroll">${panelContent()}</div></aside></div></div>`;
+    }
+
+    function renderB() {
+      return `<div class="variant-b">${header()}<main class="b-workspace"><div class="b-toolbar"><span>Drafting canvas · coaching stays quiet until opened</span><span>4 passage notes</span></div><article class="b-paper">${draft()}</article></main><aside class="b-dock ${state.dockOpen ? '' : 'collapsed'}"><div class="b-dock-bar"><div class="b-dock-summary"><span class="count">3</span><strong>Priorities</strong><span>Sharpen promise · Earn the turn · Make ending concrete</span></div><button class="secondary-button dock-toggle">${state.dockOpen ? 'Return to draft' : 'Open Coach'}</button></div>${state.dockOpen ? `<div class="b-dock-body"><nav class="b-dock-nav"><button data-tab="priorities" class="${state.tab === 'priorities' ? 'active' : ''}">Three priorities</button><button data-tab="suggestions" class="${state.tab === 'suggestions' ? 'active' : ''}">Passage notes · 4</button><button data-tab="snapshot" class="${state.tab === 'snapshot' ? 'active' : ''}">Draft Snapshot</button><button class="thought-button">Thought Development</button></nav><div class="b-dock-content"><div class="b-card-grid">${state.tab === 'priorities' ? priorities() : panelContent()}</div></div></div>` : ''}</aside></div>`;
+    }
+
+    function cCoachContent() {
+      if (state.pass === 'snapshot') return snapshot();
+      if (state.pass === 'think') return `<article class="coach-card selected"><span class="pill">Optional conversation</span><h3 style="margin-top:10px">Develop the underlying distinction</h3><p>The ending claims some resistance belongs in an instrument. A short Thought-Development Session could pressure-test where that boundary belongs.</p><button class="primary-button thought-button">Begin one-question session</button></article>`;
+      if (state.pass === 'structure') return `<article class="coach-card selected"><span class="pill" style="color:var(--blue);background:var(--blue-soft)">Current pass · structure</span><h3 style="margin-top:10px">Connect the experience to the principle</h3><p>The notebook changes your mind, but the causal step is compressed. Clarify what you noticed while making those slower choices.</p><div class="card-actions"><button class="primary-button jump-bridge">Show passage</button><button class="secondary-button explain-button">Explain choice</button></div></article><article class="coach-card"><h3>Later in this pass</h3><p>Check whether the final examples prove the boundary you draw.</p></article>`;
+      return `<article class="coach-card"><h3>Draft freely</h3><p>Paragraph analysis waits until you pause. Coaching marks appear without opening the panel or replacing your text.</p><button class="secondary-button" data-pass="structure">Start a revision pass</button></article>`;
+    }
+
+    function renderC() {
+      const passes = [['draft','✎','Draft'],['structure','2','Structure'],['suggestions','3','Passage notes'],['think','?','Develop thinking'],['snapshot','5','Snapshot']];
+      return `<div class="variant-c">${header()}<div class="c-shell"><aside class="c-passes"><div class="eyebrow">Working mode</div>${passes.map(([key,num,label],i) => `<button class="pass ${state.pass === key ? 'active' : ''} ${i === 0 ? 'done' : ''}" data-pass="${key}"><span class="pass-index">${i === 0 ? '✓' : num}</span><span class="pass-copy">${label}</span></button>`).join('')}<div class="c-progress">Revision progress<div class="meter"><span style="width:38%"></span></div>Passes guide attention, not a required checklist.</div></aside><main class="c-editor-wrap"><article class="c-paper"><div class="pass-banner"><strong>${state.pass === 'structure' ? 'Structure pass' : 'Draft remains editable'}</strong><span>${state.pass === 'structure' ? 'Two connections deserve attention. Other notes are muted.' : 'Switch modes whenever it helps.'}</span></div>${draft()}</article></main><aside class="c-coach"><div class="eyebrow">Coach panel</div><h2>${state.pass === 'structure' ? 'One job at a time' : 'Current guidance'}</h2><p class="muted">The panel changes with your working mode.</p>${cCoachContent()}</aside></div></div>`;
+    }
+
+    function switcher() {
+      return `<nav class="prototype-switcher" aria-label="Prototype variants"><button data-cycle="-1" aria-label="Previous variant">←</button><div class="variant-label">${state.variant} — ${variants[state.variant].name}</div><button data-cycle="1" aria-label="Next variant">→</button></nav>`;
+    }
+
+    function thoughtDialog() {
+      return state.thoughtOpen ? `<div class="thought-overlay"><section class="thought-dialog"><div class="eyebrow">Thought-Development Session · question 1</div><h2>Let's work on the idea before the prose.</h2><p class="muted">I’ll ask one question at a time and use only what you give me.</p><div class="thought-question">What kind of effort makes a person more attentive, rather than merely slowing them down?</div><textarea placeholder="Think out loud here…"></textarea><div class="dialog-actions"><button class="secondary-button thought-close">Leave session</button><button class="primary-button">Answer and continue</button></div></section></div>` : '';
+    }
+
+    function render() {
+      document.querySelector('#app').innerHTML = (state.variant === 'A' ? renderA() : state.variant === 'B' ? renderB() : renderC()) + thoughtDialog() + switcher();
+      bind();
+    }
+
+    function bind() {
+      document.querySelectorAll('[data-tab]').forEach(el => el.addEventListener('click', () => { state.tab = el.dataset.tab; render(); }));
+      document.querySelectorAll('[data-pass]').forEach(el => el.addEventListener('click', () => { state.pass = el.dataset.pass; render(); }));
+      document.querySelectorAll('.thought-button').forEach(el => el.addEventListener('click', () => { state.thoughtOpen = true; render(); }));
+      document.querySelectorAll('.thought-close').forEach(el => el.addEventListener('click', () => { state.thoughtOpen = false; render(); }));
+      document.querySelectorAll('.dock-toggle').forEach(el => el.addEventListener('click', () => { state.dockOpen = !state.dockOpen; render(); }));
+      document.querySelectorAll('.explain-button').forEach(el => el.addEventListener('click', () => {
+        el.closest('.coach-card').innerHTML = `<span class="pill">Writer Explanation</span><h3 style="margin-top:10px">Why did you make this choice?</h3><p>Your answer stays attached to this passage. The Coach will visibly withdraw, revise, or retain this suggestion.</p><textarea style="width:100%;min-height:72px;padding:9px;border:1px solid var(--line);border-radius:8px" placeholder="I chose this because…"></textarea>`;
+      }));
+      document.querySelectorAll('[data-suggestion], .jump-opening, .jump-bridge').forEach(el => el.addEventListener('click', () => {
+        state.tab = 'suggestions'; state.dockOpen = true;
+        const target = el.classList.contains('jump-bridge') || el.dataset.suggestion === 'bridge' ? 'bridge' : 'opening';
+        state.suggestion = target; render();
+        setTimeout(() => document.querySelector(`[data-suggestion="${target}"]`)?.classList.add('active'));
+      }));
+      document.querySelectorAll('[data-cycle]').forEach(el => el.addEventListener('click', () => cycle(Number(el.dataset.cycle))));
+    }
+
+    function cycle(direction) {
+      const keys = Object.keys(variants);
+      state.variant = keys[(keys.indexOf(state.variant) + direction + keys.length) % keys.length];
+      const params = new URLSearchParams(location.search); params.set('variant', state.variant);
+      history.replaceState({}, '', `${location.pathname}?${params}`);
+      render();
+    }
+
+    addEventListener('keydown', event => {
+      if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+      const active = document.activeElement;
+      if (active.matches('input, textarea, [contenteditable="true"]')) return;
+      cycle(event.key === 'ArrowRight' ? 1 : -1);
+    });
+    render();
+  </script>
+</body>
+</html>

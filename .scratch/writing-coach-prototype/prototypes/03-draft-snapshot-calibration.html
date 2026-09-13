@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PROTOTYPE — Draft Snapshot calibration</title>
+  <style>
+    :root {
+      --ink: #26231f;
+      --muted: #6e685f;
+      --paper: #fbfaf6;
+      --panel: #ffffff;
+      --line: #ded9cf;
+      --accent: #176b5b;
+      --accent-soft: #e8f3ef;
+      --warn: #8a5b11;
+      --warn-soft: #fff3d7;
+      --quiet: #f1eee7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 48px 0 80px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 760px; margin-bottom: 12px; font: 650 clamp(2rem, 5vw, 3.7rem)/1.04 Georgia, serif; }
+    h2 { margin-bottom: 14px; font-size: 1.08rem; }
+    h3 { margin-bottom: 4px; font-size: .96rem; }
+
+    .eyebrow {
+      margin-bottom: 14px;
+      color: var(--accent);
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    .intro { max-width: 820px; margin-bottom: 30px; color: var(--muted); font-size: 1.05rem; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 20px; }
+    .stack { display: grid; gap: 20px; align-content: start; }
+
+    .panel {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 8px 28px rgb(45 40 32 / 5%);
+    }
+
+    .snapshot-head {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .overall {
+      display: grid;
+      width: 96px;
+      height: 96px;
+      flex: 0 0 auto;
+      place-content: center;
+      border: 8px solid var(--accent-soft);
+      border-radius: 50%;
+      color: var(--accent);
+      text-align: center;
+    }
+
+    .overall strong { font-size: 1.8rem; line-height: 1; }
+    .overall span { margin-top: 4px; color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+    .provisional { margin: 8px 0 0; color: var(--muted); font-size: .88rem; }
+    .changed { margin: 7px 0 0; color: var(--accent); font-size: .84rem; font-weight: 650; }
+
+    .scores { display: grid; gap: 0; margin-top: 6px; }
+    .score-row { display: grid; grid-template-columns: 130px 80px 1fr; gap: 14px; align-items: start; padding: 15px 0; border-bottom: 1px solid var(--line); }
+    .score-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .category { font-weight: 700; }
+    .score { color: var(--accent); font-weight: 800; }
+    .score.unscored { color: var(--muted); font-size: .83rem; }
+    .reason { margin: 0; color: var(--muted); font-size: .9rem; }
+
+    .badge { display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 999px; background: var(--quiet); color: var(--muted); font-size: .7rem; font-weight: 750; text-transform: uppercase; }
+    .badge.low { color: var(--warn); background: var(--warn-soft); }
+    .badge.high { color: var(--accent); background: var(--accent-soft); }
+
+    .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .fact { padding: 12px; border-radius: 9px; background: var(--quiet); }
+    .fact span { display: block; color: var(--muted); font-size: .73rem; text-transform: uppercase; }
+    .fact strong { display: block; margin-top: 3px; font-size: .92rem; }
+
+    .controls { display: grid; gap: 10px; }
+    button { appearance: none; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: white; font: inherit; font-size: .86rem; font-weight: 650; cursor: pointer; text-align: left; }
+    button:hover { border-color: var(--accent); }
+    button.primary { color: white; border-color: var(--accent); background: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    .anchor-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .anchor { padding: 10px; border-radius: 8px; background: var(--quiet); font-size: .77rem; }
+    .anchor b { display: block; margin-bottom: 5px; color: var(--accent); font-size: .9rem; }
+    .principles { margin: 16px 0 0; padding-left: 20px; color: var(--muted); font-size: .88rem; }
+
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; overflow-x: auto; }
+    .tabs button { white-space: nowrap; }
+    .tabs button.active { color: white; border-color: var(--accent); background: var(--accent); }
+    .walkthrough p { color: var(--muted); font-size: .9rem; }
+    .steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .step-number { display: inline-grid; width: 20px; height: 20px; margin-right: 6px; place-content: center; border-radius: 50%; background: var(--quiet); font-size: .7rem; }
+    .step-done { color: var(--muted); text-decoration: line-through; }
+
+    .decision { border-left: 4px solid var(--accent); background: var(--accent-soft); }
+    .decision p { margin: 0; color: #315c53; font-size: .9rem; }
+
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      .score-row { grid-template-columns: 110px 70px 1fr; }
+      .anchor-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Throwaway logic prototype</div>
+    <h1>When does a Draft Snapshot know enough to speak?</h1>
+    <p class="intro">This demo tests whether a five-point, evidence-anchored model can distinguish six coaching qualities without turning an early draft into a bad grade or treating an intentional convention-break as an error.</p>
+
+    <div class="layout">
+      <section class="stack">
+        <article class="panel" aria-live="polite">
+          <div class="snapshot-head">
+            <div class="overall"><strong id="overall-score">—</strong><span>overall</span></div>
+            <div>
+              <h2 id="snapshot-title">Draft Snapshot</h2>
+              <p class="provisional" id="snapshot-note"></p>
+              <p class="changed" id="last-change"></p>
+            </div>
+          </div>
+          <div class="scores" id="scores"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Shared five-point anchor</h2>
+          <div class="anchor-grid">
+            <div class="anchor"><b>1 · Blocking</b>The pattern repeatedly prevents the intended reading.</div>
+            <div class="anchor"><b>2 · Straining</b>Repeated friction makes the reader work too hard.</div>
+            <div class="anchor"><b>3 · Working</b>The draft generally works, with a consequential weakness.</div>
+            <div class="anchor"><b>4 · Strong</b>The quality supports the article, with only local friction.</div>
+            <div class="anchor"><b>5 · Distinctive</b>The quality is consistently effective for this intent.</div>
+          </div>
+          <ul class="principles">
+            <li>A score describes observed reader impact, not effort, talent, or draft completeness.</li>
+            <li>“Not enough evidence” is different from a low score.</li>
+            <li>The Coach names the observed pattern behind every score.</li>
+            <li>Unconventional is not a penalty; unexplained intent lowers confidence, not the score by itself.</li>
+          </ul>
+        </article>
+
+        <article class="panel walkthrough">
+          <h2>Guided edge cases</h2>
+          <div class="tabs" id="tabs"></div>
+          <h3 id="scenario-title"></h3>
+          <p id="scenario-copy"></p>
+          <div class="steps" id="scenario-steps"></div>
+        </article>
+      </section>
+
+      <aside class="stack">
+        <article class="panel">
+          <h2>What the Coach can observe</h2>
+          <div class="facts" id="facts"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Free play</h2>
+          <div class="controls" id="controls"></div>
+        </article>
+
+        <article class="panel decision">
+          <h2>Decision this prototype is testing</h2>
+          <p>Use one shared 1–5 impact scale, category-specific observable evidence, and a separate confidence state. Delay structure and voice scores until enough text exists. Let stated intent reinterpret a convention-break, but never erase observable reader friction.</p>
+        </article>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    // Portable prototype module: pure state transitions and snapshot derivation.
+    const DraftSnapshot = (() => {
+      const initialState = () => ({
+        words: 90,
+        intentKnown: false,
+        unconventional: false,
+        choiceExplained: false,
+        signals: {
+          clarity: 0,
+          structure: 0,
+          concision: 0,
+          correctness: 0,
+          audience: 0,
+          voice: 0
+        },
+        lastChange: "Started with a 90-word sketch."
+      });
+
+      const labels = {
+        clarity: "Clarity",
+        structure: "Structure",
+        concision: "Concision",
+        correctness: "Correctness",
+        audience: "Audience fit",
+        voice: "Voice consistency"
+      };
+
+      const observations = {
+        clarity: [
+          "Purpose, claims, or referents repeatedly resist a plausible reading.",
+          "Several passages require rereading to recover their intended meaning.",
+          "The main point is available, but one consequential passage remains ambiguous.",
+          "Meaning is easy to follow; only a local phrase or connection causes friction.",
+          "Purpose and meaning remain unmistakable even through complex material."
+        ],
+        structure: [
+          "The reader cannot tell how major parts serve the article's purpose.",
+          "The route through the article repeatedly breaks or doubles back.",
+          "The overall route works, but one major section lacks a clear role or transition.",
+          "Each section has a clear role, with only a local sequencing issue.",
+          "The order creates momentum and makes each part feel necessary."
+        ],
+        concision: [
+          "Repetition or sentence load repeatedly hides the point.",
+          "Frequent excess makes important ideas hard to locate.",
+          "Most wording earns its place, but one repeated pattern dilutes emphasis.",
+          "The draft is economical, with only isolated excess or overload.",
+          "Length and emphasis feel deliberately matched to the reader's needs."
+        ],
+        correctness: [
+          "Mechanical patterns repeatedly obstruct or change the intended meaning.",
+          "Frequent errors interrupt reading and occasionally create ambiguity.",
+          "Meaning remains intact, but one recurring error pattern distracts.",
+          "Only isolated slips interrupt an otherwise fluent read.",
+          "Mechanics consistently support effortless reading for this context."
+        ],
+        audience: [
+          "The draft's assumptions repeatedly exclude or misdirect the stated audience.",
+          "Unexplained knowledge or mismatched framing creates frequent distance.",
+          "The article usually meets its audience, with one important mismatch.",
+          "Context and language fit the audience, apart from a local mismatch.",
+          "Framing, context, and detail feel precisely chosen for this audience."
+        ],
+        voice: [
+          "Shifts in tone or diction repeatedly obscure who is speaking or why.",
+          "The expression changes often enough to feel unstable rather than purposeful.",
+          "A recognizable voice is present, with one consequential unexplained shift.",
+          "The voice is recognizable and stable, with only a local drift.",
+          "The voice is coherent, distinctive, and consistently serves the intent."
+        ]
+      };
+
+      const minimumWords = { clarity: 80, structure: 450, concision: 180, correctness: 120, audience: 180, voice: 350 };
+
+      function confidenceFor(category, state) {
+        const threshold = minimumWords[category];
+        if (state.words < threshold) return "insufficient";
+        let evidence = state.words >= threshold * 2 ? 2 : 1;
+        if (state.intentKnown && ["clarity", "structure", "audience", "voice"].includes(category)) evidence += 1;
+        if (state.unconventional && ["structure", "voice"].includes(category) && !state.choiceExplained) evidence -= 1;
+        return evidence >= 3 ? "high" : evidence >= 1 ? "medium" : "low";
+      }
+
+      function categoryResult(category, state) {
+        const confidence = confidenceFor(category, state);
+        if (confidence === "insufficient") {
+          return {
+            category,
+            label: labels[category],
+            score: null,
+            confidence,
+            reason: `Needs more than ${minimumWords[category]} words to observe a repeated pattern.`
+          };
+        }
+
+        const friction = state.signals[category];
+        let score = [4, 3, 2, 1][Math.min(friction, 3)];
+        if (friction === 0 && state.words >= 900 && confidence === "high") score = 5;
+
+        let reason = observations[category][score - 1];
+        if (state.unconventional && ["structure", "voice"].includes(category)) {
+          if (state.choiceExplained) {
+            reason += " The convention-break is stated as intentional, so it is judged by whether it works for that purpose.";
+          } else {
+            reason += " The pattern may be intentional; the Coach should ask before treating it as a weakness.";
+          }
+        }
+        return { category, label: labels[category], score, confidence, reason };
+      }
+
+      function derive(state) {
+        const categories = Object.keys(labels).map(key => categoryResult(key, state));
+        const scored = categories.filter(item => item.score !== null);
+        const overall = scored.length >= 4
+          ? Math.round((scored.reduce((sum, item) => sum + item.score, 0) / scored.length) * 20)
+          : null;
+        const lowConfidence = categories.filter(item => item.confidence === "low" || item.confidence === "insufficient").length;
+        return {
+          categories,
+          overall,
+          provisional: overall === null || lowConfidence > 0,
+          note: overall === null
+            ? `No overall score yet · only ${scored.length} of 6 qualities have enough evidence.`
+            : lowConfidence > 0
+              ? `Provisional · ${lowConfidence} qualities need more evidence or intent context.`
+              : "Current evidence supports all six category scores."
+        };
+      }
+
+      function reduce(state, action) {
+        if (action.type === "RESET") return initialState();
+        const next = structuredClone(state);
+        if (action.type === "SET_WORDS") {
+          next.words = action.words;
+          next.lastChange = `Draft now contains about ${action.words} words.`;
+        }
+        if (action.type === "SET_INTENT") {
+          next.intentKnown = true;
+          next.lastChange = "Writer added purpose and audience context.";
+        }
+        if (action.type === "TOGGLE_UNCONVENTIONAL") {
+          next.unconventional = !next.unconventional;
+          next.choiceExplained = false;
+          next.lastChange = next.unconventional
+            ? "Coach detected an unconventional structure or voice pattern."
+            : "Draft returned to familiar conventions.";
+        }
+        if (action.type === "EXPLAIN_CHOICE") {
+          next.choiceExplained = true;
+          next.lastChange = "Writer explained the purpose of the unconventional choice.";
+        }
+        if (action.type === "ADD_FRICTION") {
+          next.signals[action.category] = Math.min(3, next.signals[action.category] + 1);
+          next.lastChange = `Added another observable ${labels[action.category].toLowerCase()} friction pattern.`;
+        }
+        if (action.type === "REMOVE_FRICTION") {
+          next.signals[action.category] = Math.max(0, next.signals[action.category] - 1);
+          next.lastChange = `Removed one ${labels[action.category].toLowerCase()} friction pattern.`;
+        }
+        return next;
+      }
+
+      return { initialState, derive, reduce, labels };
+    })();
+
+    const actionLabels = {
+      RESET: "Reset to a 90-word sketch",
+      SET_INTENT: "Add purpose + audience",
+      TOGGLE_UNCONVENTIONAL: "Toggle unconventional choice",
+      EXPLAIN_CHOICE: "Explain the choice",
+      "SET_WORDS:320": "Grow to 320 words",
+      "SET_WORDS:750": "Grow to 750 words",
+      "SET_WORDS:1300": "Grow to 1,300 words"
+    };
+
+    const scenarios = [
+      {
+        title: "Early sketch",
+        copy: "Watch the Coach withhold an overall score and avoid converting missing evidence into failure.",
+        steps: [
+          { type: "RESET" },
+          { type: "SET_INTENT" },
+          { type: "ADD_FRICTION", category: "clarity", label: "Notice repeated ambiguity" },
+          { type: "SET_WORDS", words: 320 }
+        ]
+      },
+      {
+        title: "A maturing draft",
+        copy: "Watch more categories become scorable, while repeated friction moves a score across observable anchors.",
+        steps: [
+          { type: "RESET" },
+          { type: "SET_INTENT" },
+          { type: "SET_WORDS", words: 750 },
+          { type: "ADD_FRICTION", category: "concision", label: "Notice repeated excess" },
+          { type: "ADD_FRICTION", category: "concision", label: "Find the same pattern again" }
+        ]
+      },
+      {
+        title: "Intentional fragments",
+        copy: "Watch an unfamiliar pattern lower confidence until the writer explains it; the explanation changes interpretation, not the observed reader impact.",
+        steps: [
+          { type: "RESET" },
+          { type: "SET_WORDS", words: 1300 },
+          { type: "TOGGLE_UNCONVENTIONAL" },
+          { type: "ADD_FRICTION", category: "voice", label: "Observe a jarring voice shift" },
+          { type: "EXPLAIN_CHOICE" }
+        ]
+      }
+    ];
+
+    let state = DraftSnapshot.initialState();
+    let activeScenario = 0;
+    let completedSteps = 0;
+
+    const controls = [
+      { type: "SET_INTENT" },
+      { type: "SET_WORDS", words: 320 },
+      { type: "SET_WORDS", words: 750 },
+      { type: "SET_WORDS", words: 1300 },
+      { type: "TOGGLE_UNCONVENTIONAL" },
+      { type: "EXPLAIN_CHOICE" },
+      ...Object.keys(DraftSnapshot.labels).map(category => ({ type: "ADD_FRICTION", category, label: `Add ${DraftSnapshot.labels[category]} friction` })),
+      ...Object.keys(DraftSnapshot.labels).map(category => ({ type: "REMOVE_FRICTION", category, label: `Remove ${DraftSnapshot.labels[category]} friction` })),
+      { type: "RESET" }
+    ];
+
+    function labelFor(action) {
+      return action.label || actionLabels[`${action.type}:${action.words}`] || actionLabels[action.type] || action.type;
+    }
+
+    function dispatch(action, fromWalkthrough = false) {
+      state = DraftSnapshot.reduce(state, action);
+      if (fromWalkthrough) completedSteps += 1;
+      render();
+    }
+
+    function setScenario(index) {
+      activeScenario = index;
+      completedSteps = 0;
+      state = DraftSnapshot.initialState();
+      state.lastChange = `Started the “${scenarios[index].title}” walkthrough.`;
+      render();
+    }
+
+    function render() {
+      const snapshot = DraftSnapshot.derive(state);
+      document.querySelector("#overall-score").textContent = snapshot.overall ?? "—";
+      document.querySelector("#snapshot-title").textContent = snapshot.provisional ? "Provisional Draft Snapshot" : "Draft Snapshot";
+      document.querySelector("#snapshot-note").textContent = snapshot.note;
+      document.querySelector("#last-change").textContent = state.lastChange;
+
+      document.querySelector("#scores").innerHTML = snapshot.categories.map(item => `
+        <div class="score-row">
+          <div class="category">${item.label}</div>
+          <div>
+            <div class="score ${item.score === null ? "unscored" : ""}">${item.score === null ? "Not scored" : `${item.score} / 5`}</div>
+            <span class="badge ${item.confidence}">${item.confidence === "insufficient" ? "waiting" : `${item.confidence} confidence`}</span>
+          </div>
+          <p class="reason">${item.reason}</p>
+        </div>
+      `).join("");
+
+      const factRows = [
+        ["Draft length", `${state.words.toLocaleString()} words`],
+        ["Purpose + audience", state.intentKnown ? "Known" : "Not stated"],
+        ["Form", state.unconventional ? "Unconventional" : "Familiar"],
+        ["Writer context", state.choiceExplained ? "Choice explained" : "No explanation"]
+      ];
+      document.querySelector("#facts").innerHTML = factRows.map(([key, value]) => `<div class="fact"><span>${key}</span><strong>${value}</strong></div>`).join("");
+
+      document.querySelector("#controls").innerHTML = controls.map((action, index) => {
+        const disabled = action.type === "EXPLAIN_CHOICE" && !state.unconventional;
+        return `<button data-control="${index}" ${disabled ? "disabled" : ""}>${labelFor(action)}</button>`;
+      }).join("");
+      document.querySelectorAll("[data-control]").forEach(button => {
+        button.onclick = () => dispatch(controls[Number(button.dataset.control)]);
+      });
+
+      document.querySelector("#tabs").innerHTML = scenarios.map((scenario, index) => `<button class="${index === activeScenario ? "active" : ""}" data-tab="${index}">${scenario.title}</button>`).join("");
+      document.querySelectorAll("[data-tab]").forEach(button => {
+        button.onclick = () => setScenario(Number(button.dataset.tab));
+      });
+
+      const scenario = scenarios[activeScenario];
+      document.querySelector("#scenario-title").textContent = scenario.title;
+      document.querySelector("#scenario-copy").textContent = scenario.copy;
+      document.querySelector("#scenario-steps").innerHTML = scenario.steps.map((action, index) => {
+        const done = index < completedSteps;
+        return `<button class="${done ? "step-done" : index === completedSteps ? "primary" : ""}" data-step="${index}" ${index !== completedSteps ? "disabled" : ""}><span class="step-number">${index + 1}</span>${labelFor(action)}</button>`;
+      }).join("");
+      const current = document.querySelector(`[data-step="${completedSteps}"]`);
+      if (current) current.onclick = () => dispatch(scenario.steps[completedSteps], true);
+    }
+
+    render();
+  </script>
+</body>
+</html>
