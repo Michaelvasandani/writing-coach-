@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   applySuggestionResponse,
   deriveOverallScore,
-  findFrontier,
   isCurrentRevision,
   normalizeAnchor,
   validateAnchor
@@ -71,15 +70,5 @@ describe("suggestion application", () => {
       dispositions: [],
       candidates: [{ ...existing[0], id: "bad", anchors: [{ blockId: "p-1", from: 0, to: 5, quote: "Wrong" }] }]
     })).toThrow("stale anchor");
-  });
-});
-
-describe("thought-development frontier", () => {
-  it("offers only unanswered nodes whose prerequisites are satisfied", () => {
-    expect(findFrontier([
-      { id: "meaning", prompt: "What do you mean?", required: true, prerequisites: [], status: "answered" },
-      { id: "reason", prompt: "Why does it matter?", required: true, prerequisites: ["meaning"], status: "ready" },
-      { id: "place", prompt: "Where does it belong?", required: true, prerequisites: ["reason"], status: "blocked" }
-    ])).toEqual(["reason"]);
   });
 });

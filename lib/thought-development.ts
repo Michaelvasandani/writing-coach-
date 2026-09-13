@@ -2,29 +2,20 @@ import type {
   ArticleShape, ArticleShapeResponse, DevelopmentFocus, DevelopmentReadiness, ProposedNoteChange, ThoughtArticleBoundary, ThoughtDevelopmentSession,
   ThoughtNode, ThoughtNodeId, ThoughtResponse, ThoughtSource
 } from "@/lib/types";
+import {
+  canExploreFromNotes,
+  canonicalThoughtNodes,
+  deriveThoughtFrontier,
+  isNeutralSingleQuestion,
+  validateArticleShapeResponse,
+  validateProposedNoteChanges,
+  validateThoughtResponse
+} from "@/lib/contracts/thought-validation";
 
-export const canonicalThoughtNodes: ThoughtNode[] = [
-  { id: "central_point", label: "Central point", required: true, prerequisites: [] },
-  { id: "reasoning", label: "Reasoning", required: true, prerequisites: ["central_point"] },
-  { id: "support", label: "Support or example", required: true, prerequisites: ["reasoning"] },
-  { id: "reader_relevance", label: "Reader relevance", required: true, prerequisites: ["central_point"] },
-  { id: "structural_placement", label: "Structural placement", required: true, prerequisites: ["central_point"] }
-];
-
-const focusOrder: Record<DevelopmentFocus, ThoughtNodeId[]> = {
-  thinking: ["central_point", "reasoning", "reader_relevance", "support", "structural_placement"],
-  structure: ["central_point", "structural_placement", "reasoning", "support", "reader_relevance"],
-  both: ["central_point", "reasoning", "support", "reader_relevance", "structural_placement"]
-};
+export { canonicalThoughtNodes, deriveThoughtFrontier, isNeutralSingleQuestion } from "@/lib/contracts/thought-validation";
 
 function initialReadiness(): DevelopmentReadiness {
   return { central_point: "unresolved", reasoning: "unresolved", support: "unresolved", reader_relevance: "unresolved", structural_placement: "unresolved" };
-}
-
-export function deriveThoughtFrontier(nodes: ThoughtNode[], readiness: DevelopmentReadiness, focus: DevelopmentFocus): ThoughtNodeId[] {
-  const available = nodes.filter((node) => readiness[node.id] === "unresolved")
-    .filter((node) => node.prerequisites.every((id) => readiness[id] !== "unresolved")).map((node) => node.id);
-  return focusOrder[focus].filter((id) => available.includes(id));
 }
 
 export function createThoughtDevelopmentSession(input: {
@@ -37,56 +28,20 @@ export function createThoughtDevelopmentSession(input: {
   const frontier = deriveThoughtFrontier(nodes, readiness, input.focus);
   return {
     id: input.id, topic, focus: input.focus, source: input.source ?? { kind: "general" }, articleBoundary: { ...input.articleBoundary },
-    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null, shapeRequest: null, shapeIssue: null, phase: "active",
+    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null, shapeRequest: null, shapeIssue: null, structuresOffered: false, phase: "active",
     request: { turnId: input.requestId, targetNodeId: frontier[0], status: "pending" }, lastError: null
   };
 }
 
-export function isNeutralSingleQuestion(question: string): boolean {
-  const normalized = question.trim();
-  if (!normalized.endsWith("?") || (normalized.match(/\?/g) ?? []).length !== 1) return false;
-  if (/\b(great|excellent|good|insightful|smart|strong|wonderful)\b/i.test(normalized)) return false;
-  if (/\b(isn't|aren't|wouldn't|don't you (?:think|agree)|surely|obviously)\b/i.test(normalized)) return false;
-  if (/\bor\b/i.test(normalized)) return false;
-  if (/\band\s+(?:why|what|how|where|when|who|which|do|does|did|is|are|would|could|should)\b/i.test(normalized)) return false;
-  return true;
-}
-
-function sameBoundary(a: ThoughtArticleBoundary, b: ThoughtArticleBoundary) {
-  return a.articleId === b.articleId && a.revision === b.revision && a.contentHash === b.contentHash;
-}
-
-const groundingStopWords = new Set(["about", "after", "again", "also", "because", "before", "being", "could", "does", "from", "have", "into", "more", "most", "only", "other", "should", "their", "there", "these", "they", "this", "those", "through", "very", "what", "when", "where", "which", "while", "with", "would"]);
-const shapeVocabulary = new Set([
-  "arrange", "arrangement", "arrives", "begin", "central", "compare", "concrete", "connect", "contrast", "delay", "delayed",
-  "describe", "develop", "emphasis", "emphasize", "emphasizes", "example", "explain", "frame", "introduce", "last", "lead", "logic",
-  "main", "move", "naming", "order", "organize", "point", "present", "reason", "reasoning", "section", "state", "structure", "support", "then", "tradeoff"
-]);
-
-function groundingTokens(text: string) {
-  return text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter((token) => token.length > 3 && !groundingStopWords.has(token)) ?? [];
-}
-
-function isGroundedNote(text: string, sourceText: string) {
-  const noteTokens = groundingTokens(text);
-  if (!noteTokens.length) return sourceText.toLocaleLowerCase().includes(text.trim().toLocaleLowerCase());
-  const sourceTokens = new Set(groundingTokens(sourceText));
-  const grounded = noteTokens.filter((token) => sourceTokens.has(token)).length;
-  return grounded / noteTokens.length >= 0.7;
-}
-
 function applyNoteChanges(session: ThoughtDevelopmentSession, changes: ProposedNoteChange[]) {
   const notes = session.notes.map((note) => ({ ...note, sourceTurnIds: [...note.sourceTurnIds] }));
-  const writerTurnIds = new Set(session.transcript.filter((turn) => turn.role === "writer").map((turn) => turn.id));
+  validateProposedNoteChanges(changes, session.transcript);
   for (const change of changes) {
     if (change.kind === "delete") {
       const index = notes.findIndex((note) => note.id === change.noteId);
       if (index >= 0 && notes[index].provenance !== "writer-edited") notes.splice(index, 1);
       continue;
     }
-    if (!change.note.text.trim() || !change.note.sourceTurnIds.length || change.note.sourceTurnIds.some((id) => !writerTurnIds.has(id))) throw new Error("invalid Session Note source");
-    const sourceText = session.transcript.filter((turn) => turn.role === "writer" && change.note.sourceTurnIds.includes(turn.id)).map((turn) => turn.text).join(" ");
-    if (!isGroundedNote(change.note.text, sourceText)) throw new Error("unsupported Session Note substance");
     const index = notes.findIndex((note) => note.id === change.note.id);
     if (index >= 0 && notes[index].provenance === "writer-edited") continue;
     const note = { ...change.note, text: change.note.text.trim(), sourceTurnIds: [...change.note.sourceTurnIds], provenance: "coach-proposed" as const, needsReview: false };
@@ -165,8 +120,25 @@ export function updateDevelopmentFocus(session: ThoughtDevelopmentSession, focus
   return { ...session, focus, frontier: deriveThoughtFrontier(session.nodes, session.readiness, focus) };
 }
 
+export function redirectThoughtDevelopment(session: ThoughtDevelopmentSession, input: { topic: string; focus: DevelopmentFocus; turnId: string }): ThoughtDevelopmentSession {
+  const topic = input.topic.trim();
+  if (!topic || !input.turnId || session.request || session.shapeRequest || session.phase !== "active") return session;
+  const frontier = deriveThoughtFrontier(session.nodes, session.readiness, input.focus);
+  if (!frontier.length) return session;
+  return {
+    ...session,
+    topic,
+    focus: input.focus,
+    frontier,
+    request: { turnId: input.turnId, targetNodeId: frontier[0], status: "pending" },
+    shapeIssue: null,
+    structuresOffered: false,
+    lastError: null
+  };
+}
+
 export function finishThoughtDevelopment(session: ThoughtDevelopmentSession): ThoughtDevelopmentSession {
-  return { ...session, phase: "finished", request: null, lastError: null };
+  return { ...session, phase: "finished", request: null, structuresOffered: false, lastError: null };
 }
 
 export function isThoughtCheckpoint(questionCount: number) {
@@ -178,14 +150,12 @@ function currentShapeNotes(session: ThoughtDevelopmentSession) {
 }
 
 export function canExploreArticleShapes(session: ThoughtDevelopmentSession) {
-  const notes = currentShapeNotes(session);
-  return notes.some((note) => note.role === "central_point")
-    && notes.filter((note) => note.role !== "central_point").length >= 2;
+  return canExploreFromNotes(session.notes);
 }
 
 export function beginArticleShapeExploration(session: ThoughtDevelopmentSession, requestId: string): ThoughtDevelopmentSession {
   if (!requestId || session.request || session.shapeRequest) return session;
-  return { ...session, shapeRequest: { requestId, status: "pending" }, shapeIssue: null, lastError: null };
+  return { ...session, shapeRequest: { requestId, status: "pending" }, shapeIssue: null, structuresOffered: false, lastError: null };
 }
 
 export function failArticleShapeRequest(session: ThoughtDevelopmentSession, message: string): ThoughtDevelopmentSession {
@@ -217,37 +187,12 @@ export function buildArticleShapeRequest(session: ThoughtDevelopmentSession) {
   };
 }
 
-function validateShape(shape: ArticleShape, noteIds: Set<string>) {
-  const shapeSectionIds = new Set<string>();
-  const usedNoteIds = new Set<string>();
-  if (!shape.id.trim() || !shape.organizingLogic.trim() || !shape.tradeoff.trim() || !shape.sections.length) throw new Error("invalid Article Shape");
-  for (const section of shape.sections) {
-    if (!section.id.trim() || shapeSectionIds.has(section.id) || !section.purpose.trim() || section.purpose.length > 80 || !section.noteIds.length) {
-      throw new Error("invalid Article Shape section");
-    }
-    shapeSectionIds.add(section.id);
-    for (const noteId of section.noteIds) {
-      if (!noteIds.has(noteId)) throw new Error("Article Shapes must reference current Session Notes");
-      if (usedNoteIds.has(noteId)) throw new Error("a Session Note can appear only once in an Article Shape");
-      usedNoteIds.add(noteId);
-    }
-  }
-}
-
-function isGroundedShapeMetadata(shape: ArticleShape, noteText: string) {
-  const noteTokens = new Set(groundingTokens(noteText));
-  const metadata = [shape.organizingLogic, shape.tradeoff, ...shape.sections.map((section) => section.purpose)].join(" ");
-  return groundingTokens(metadata).every((token) => noteTokens.has(token) || shapeVocabulary.has(token));
-}
-
 export function applyArticleShapeResponse(session: ThoughtDevelopmentSession, response: ArticleShapeResponse): ThoughtDevelopmentSession {
   const pending = session.shapeRequest;
-  if (!pending || pending.status !== "pending" || response.requestId !== pending.requestId) throw new Error("stale Article Shape request");
-  if (response.contract !== "thought-development.v1" || response.sessionId !== session.id) throw new Error("stale Session identity");
-  if (!sameBoundary(response.articleBoundary, session.articleBoundary)) throw new Error("Article boundary changed");
+  if (!pending || pending.status !== "pending") throw new Error("stale Article Shape request");
+  validateArticleShapeResponse({ sessionId: session.id, requestId: pending.requestId, articleBoundary: session.articleBoundary, frontier: session.frontier, notes: session.notes }, response);
 
   if (response.kind === "unresolved") {
-    if (!isNeutralSingleQuestion(response.question)) throw new Error("follow-up must be one neutral question");
     const readiness = { ...session.readiness, [response.unresolvedArea]: "unresolved" as const };
     const questionId = `coach-shape-${response.requestId}`;
     return {
@@ -264,17 +209,6 @@ export function applyArticleShapeResponse(session: ThoughtDevelopmentSession, re
     };
   }
 
-  if (!canExploreArticleShapes(session)) throw new Error("current Session Notes are not sufficient for Article Shapes");
-  if (!response.shapes.length || response.shapes.length > 3) throw new Error("Article Shape responses must contain one to three Shapes");
-  const shapeIds = new Set<string>();
-  const currentNotes = currentShapeNotes(session);
-  const noteIds = new Set(currentNotes.map((note) => note.id));
-  for (const shape of response.shapes) {
-    if (shapeIds.has(shape.id)) throw new Error("Article Shape IDs must be unique");
-    shapeIds.add(shape.id);
-    validateShape(shape, noteIds);
-    if (!isGroundedShapeMetadata(shape, currentNotes.map((note) => note.text).join(" "))) throw new Error("unsupported Article Shape substance");
-  }
   const shapes = response.shapes.map((shape) => ({
     ...shape,
     organizingLogic: shape.organizingLogic.trim(),
@@ -385,27 +319,18 @@ export function formatThoughtTranscriptMarkdown(session: ThoughtDevelopmentSessi
 
 export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSession, response: ThoughtResponse): ThoughtDevelopmentSession {
   const request = session.request;
-  if (!request || request.status !== "pending" || response.turnId !== request.turnId) throw new Error("stale turn identity");
-  if (response.contract !== "thought-development.v1" || response.sessionId !== session.id || response.targetNodeId !== request.targetNodeId) throw new Error("stale Session identity");
-  if (!sameBoundary(response.articleBoundary, session.articleBoundary)) throw new Error("Article boundary changed");
-  if (!session.frontier.includes(request.targetNodeId)) throw new Error("target is not in the ready frontier");
-  const writerTurn = session.transcript.find((turn) => turn.role === "writer" && turn.id === request.turnId);
-  if (writerTurn) {
-    if (response.readinessPatch.length > 1 || (response.readinessPatch[0] && response.readinessPatch[0].nodeId !== request.targetNodeId)) throw new Error("invalid readiness transition");
-  } else if (response.readinessPatch.length) throw new Error("opening question cannot change readiness");
-
-  const readiness = { ...session.readiness };
-  for (const patch of response.readinessPatch) {
-    if (readiness[patch.nodeId] !== "unresolved") throw new Error("invalid readiness transition");
-    readiness[patch.nodeId] = patch.status;
-  }
-  const frontier = deriveThoughtFrontier(session.nodes, readiness, session.focus);
-  if (response.nextAction.kind === "ask_question") {
-    if (!frontier.includes(response.nextAction.targetNodeId)) throw new Error("next question does not target the ready frontier");
-    if (!isNeutralSingleQuestion(response.nextAction.question)) throw new Error("question must be one neutral question");
-  } else if (response.nextAction.kind === "complete" && session.nodes.some((node) => node.required && readiness[node.id] === "unresolved")) {
-    throw new Error("Session is not complete");
-  }
+  if (!request || request.status !== "pending") throw new Error("stale turn identity");
+  const { readiness, frontier } = validateThoughtResponse({
+    sessionId: session.id,
+    request,
+    articleBoundary: session.articleBoundary,
+    nodes: session.nodes,
+    readiness: session.readiness,
+    frontier: session.frontier,
+    focus: session.focus,
+    transcript: session.transcript,
+    notes: session.notes
+  }, response);
 
   const notes = applyNoteChanges(session, response.proposedNoteChanges);
   const transcript = session.transcript.map((turn) => turn.role === "writer" && turn.id === request.turnId ? { ...turn, status: "accepted" as const } : turn);
@@ -418,8 +343,14 @@ export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSessi
     transcript,
     request: null,
     lastError: null,
+    structuresOffered: response.nextAction.kind === "offer_structures",
     phase: response.nextAction.kind === "complete" ? "finished" : session.phase
   };
+}
+
+export function continueAfterStructureOffer(session: ThoughtDevelopmentSession, turnId: string): ThoughtDevelopmentSession {
+  if (!session.structuresOffered || session.request || session.shapeRequest || !turnId || !session.frontier.length) return session;
+  return { ...session, structuresOffered: false, request: { turnId, targetNodeId: session.frontier[0], status: "pending" }, lastError: null };
 }
 
 export type ThoughtDevelopmentAction =
@@ -434,7 +365,7 @@ export function thoughtDevelopmentReducer(session: ThoughtDevelopmentSession, ac
     const question = [...session.transcript].reverse().find((turn) => turn.role === "coach");
     const text = action.text.trim();
     if (!question || !text) return session;
-    return { ...session, transcript: [...session.transcript, { id: action.turnId, role: "writer", targetNodeId: question.targetNodeId, text, status: "pending" }], request: { turnId: action.turnId, targetNodeId: question.targetNodeId, status: "pending" }, shapeIssue: null, lastError: null };
+    return { ...session, transcript: [...session.transcript, { id: action.turnId, role: "writer", targetNodeId: question.targetNodeId, text, status: "pending" }], request: { turnId: action.turnId, targetNodeId: question.targetNodeId, status: "pending" }, shapeIssue: null, structuresOffered: false, lastError: null };
   }
   if (action.type === "request_failed") {
     if (!session.request) return session;

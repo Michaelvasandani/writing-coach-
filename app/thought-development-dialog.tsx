@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { ZodType } from "zod";
 import { articleShapeOutputSchema, thoughtOutputSchema } from "@/lib/contracts/thought";
 import {
   applyArticleShapeResponse,
@@ -8,6 +9,7 @@ import {
   buildArticleShapeRequest,
   buildThoughtRequest,
   canExploreArticleShapes,
+  continueAfterStructureOffer,
   createThoughtDevelopmentSession,
   deleteSessionNote,
   editSessionNote,
@@ -21,11 +23,11 @@ import {
   renameShapeSection,
   reorderShapeSection,
   retryArticleShapeRequest,
+  redirectThoughtDevelopment,
   reviseThoughtAnswer,
   selectArticleShape,
   skipThoughtNode,
   thoughtDevelopmentReducer,
-  updateDevelopmentFocus
 } from "@/lib/thought-development";
 import type { ArticleShape, DevelopmentFocus, SessionNote, ThoughtArticleBoundary, ThoughtDevelopmentSession, ThoughtSource } from "@/lib/types";
 
@@ -125,6 +127,22 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
   const [closeError, setCloseError] = useState<string | null>(null);
   const copyAndCloseStarted = useRef(false);
 
+  async function postContract<T>(payload: unknown, schema: ZodType<T>, invalidResponseMessage: string): Promise<T> {
+    const response = await fetch("/api/thought-development", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const message = typeof body === "object" && body && "error" in body ? String(body.error) : "Coach unavailable";
+      throw new Error(message);
+    }
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) throw new Error(invalidResponseMessage);
+    return parsed.data;
+  }
+
   function hasSessionWork(current: ThoughtDevelopmentSession | null) {
     return !!current && (current.notes.length > 0 || current.transcript.some((turn) => turn.role === "writer"));
   }
@@ -162,19 +180,8 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
 
   async function sendRequest(current: ThoughtDevelopmentSession) {
     try {
-      const response = await fetch("/api/thought-development", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildThoughtRequest(current))
-      });
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        const error = typeof body === "object" && body && "error" in body ? String(body.error) : "Coach unavailable";
-        throw new Error(error);
-      }
-      const parsed = thoughtOutputSchema.safeParse(body);
-      if (!parsed.success) throw new Error("The Coach returned an incomplete response. You can retry safely.");
-      setSession((latest) => latest ? thoughtDevelopmentReducer(latest, { type: "response_received", response: parsed.data }) : latest);
+      const output = await postContract(buildThoughtRequest(current), thoughtOutputSchema, "The Coach returned an incomplete response. You can retry safely.");
+      setSession((latest) => latest ? thoughtDevelopmentReducer(latest, { type: "response_received", response: output }) : latest);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Coach unavailable";
       setSession((latest) => latest ? thoughtDevelopmentReducer(latest, { type: "request_failed", message }) : latest);
@@ -183,22 +190,11 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
 
   async function sendShapeRequest(current: ThoughtDevelopmentSession) {
     try {
-      const response = await fetch("/api/thought-development", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildArticleShapeRequest(current))
-      });
-      const body: unknown = await response.json();
-      if (!response.ok) {
-        const error = typeof body === "object" && body && "error" in body ? String(body.error) : "Coach unavailable";
-        throw new Error(error);
-      }
-      const parsed = articleShapeOutputSchema.safeParse(body);
-      if (!parsed.success) throw new Error("The Coach returned invalid Article Shapes. Your Session is unchanged.");
+      const output = await postContract(buildArticleShapeRequest(current), articleShapeOutputSchema, "The Coach returned invalid Article Shapes. Your Session is unchanged.");
       setSession((latest) => {
         if (!latest) return latest;
         try {
-          return applyArticleShapeResponse(latest, parsed.data);
+          return applyArticleShapeResponse(latest, output);
         } catch (error) {
           return failArticleShapeRequest(latest, error instanceof Error ? error.message : "The Coach returned invalid Article Shapes.");
         }
@@ -262,6 +258,23 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
     void sendShapeRequest(next);
   }
 
+  function applyFocusRedirect() {
+    if (!session) return;
+    const next = redirectThoughtDevelopment(session, { topic, focus, turnId: crypto.randomUUID() });
+    if (next === session) return;
+    setSession(next);
+    setFocusOpen(false);
+    void sendRequest(next);
+  }
+
+  function continueDeveloping() {
+    if (!session) return;
+    const next = continueAfterStructureOffer(session, crypto.randomUUID());
+    if (next === session) return;
+    setSession(next);
+    void sendRequest(next);
+  }
+
   function skip() {
     if (!session) return;
     const next = skipThoughtNode(session, crypto.randomUUID());
@@ -287,7 +300,7 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
   const pending = session?.request?.status === "pending";
   const shapePending = session?.shapeRequest?.status === "pending";
   const questionCount = session?.transcript.filter((turn) => turn.role === "coach").length ?? 0;
-  const checkpoint = !!session && session.phase === "active" && !session.request && isThoughtCheckpoint(questionCount) && clearedCheckpoint !== questionCount;
+  const checkpoint = !!session && session.phase === "active" && !session.request && !session.structuresOffered && isThoughtCheckpoint(questionCount) && clearedCheckpoint !== questionCount;
   return <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="thought-title">
     <div className={`thought-modal${notesOpen ? " notes-open" : ""}`}>
       <header>
@@ -312,13 +325,13 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
         <div className="thought-session-toolbar">
           <button onClick={() => setNotesOpen((open) => !open)}>Notes ({session.notes.length})</button>
           <button onClick={exploreStructures} disabled={pending || shapePending || !canExploreArticleShapes(session)}>{session.shapes.length ? "Regenerate structures" : "Explore structures"}</button>
-          <button onClick={() => setFocusOpen((open) => !open)} disabled={pending || shapePending}>Change focus</button>
+          <button onClick={() => { setTopic(session.topic); setFocus(session.focus); setFocusOpen((open) => !open); }} disabled={pending || shapePending}>Change focus</button>
           <button onClick={() => setSession(finishThoughtDevelopment(session))} disabled={pending || shapePending || session.phase === "finished"}>Finish for now</button>
         </div>
         {!canExploreArticleShapes(session) && <p className="muted">Add a central-point note and at least two supporting notes to explore structures.</p>}
-        {focusOpen && <fieldset className="thought-focus-picker"><legend>Development Focus</legend>{focusOptions.map((option) => <label key={option.value}>
-          <input aria-label={option.label} type="radio" name="active-thought-focus" checked={session.focus === option.value} onChange={() => { setSession(updateDevelopmentFocus(session, option.value)); setFocusOpen(false); }} /> {option.label}
-        </label>)}</fieldset>}
+        {focusOpen && <div className="thought-focus-picker"><label>Active topic<textarea aria-label="Active topic" value={topic} onChange={(event) => setTopic(event.target.value)} /></label><fieldset><legend>Development Focus</legend>{focusOptions.map((option) => <label key={option.value}>
+          <input aria-label={option.label} type="radio" name="active-thought-focus" checked={focus === option.value} onChange={() => setFocus(option.value)} /> {option.label}
+        </label>)}</fieldset><button onClick={applyFocusRedirect} disabled={!topic.trim()}>Apply focus</button></div>}
         <div className="thought-readiness" aria-label="Development Readiness">
           {session.nodes.map((node) => <div key={node.id} className={`readiness-${session.readiness[node.id]}`}><span>{node.label}</span><strong>{readinessLabels[session.readiness[node.id]]}</strong></div>)}
         </div>
@@ -334,10 +347,11 @@ export default function ThoughtDevelopmentDialog({ articleBoundary, initialTopic
               {shapePending && <p className="muted">Arranging your current Session Notes…</p>}
               {session.lastError && <div className="thought-error" role="alert"><p>{session.lastError}</p><button onClick={session.shapeRequest?.status === "failed" ? retryStructures : retry}>Retry</button></div>}
               {session.shapeIssue && <div className="thought-error" role="alert"><strong>{session.nodes.find((node) => node.id === session.shapeIssue?.unresolvedArea)?.label} is unresolved</strong><p>{session.shapeIssue.question}</p></div>}
+              {session.structuresOffered && <div className="thought-checkpoint"><strong>Your current notes can support structural exploration.</strong><div><button onClick={exploreStructures}>Explore structures</button><button onClick={continueDeveloping}>Continue developing</button><button onClick={() => setSession(finishThoughtDevelopment(session))}>Finish for now</button></div></div>}
               {session.phase === "finished" && <div className="thought-finished"><strong>Review your Session</strong><p>{session.nodes.every((node) => session.readiness[node.id] !== "unresolved") ? "Complete Session ready to review." : "Partial thinking saved in this open Session."} It remains available only while this dialog is open.</p><div className="thought-review-actions"><button onClick={() => void copyMarkdown("notes")}>Copy notes</button><button onClick={() => void copyMarkdown("transcript")}>Copy transcript</button><button className="danger" onClick={requestClose}>Close Session</button></div>{copyStatus && <small role="status">{copyStatus}</small>}</div>}
               {checkpoint && <div className="thought-checkpoint"><strong>Pause and choose what is useful now.</strong><div><button onClick={() => setClearedCheckpoint(questionCount)}>Continue</button><button onClick={() => { setNotesOpen(true); setClearedCheckpoint(questionCount); }}>Review partial notes</button><button onClick={() => setSession(finishThoughtDevelopment(session))}>Finish for now</button></div></div>}
             </div>
-            {session.phase === "active" && <div className="thought-compose">
+            {session.phase === "active" && !session.structuresOffered && <div className="thought-compose">
               <textarea aria-label="Your answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Answer in your own rough words…" disabled={!!session.request || !!session.shapeRequest || checkpoint} />
               <div><button className="secondary" onClick={skip} disabled={!!session.request || !!session.shapeRequest || checkpoint}>Skip</button><button onClick={submitAnswer} disabled={!answer.trim() || !!session.request || !!session.shapeRequest || checkpoint}>Continue</button></div>
             </div>}

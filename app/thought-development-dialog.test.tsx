@@ -254,7 +254,11 @@ describe("Thought Development dialog", () => {
     await settle();
 
     await act(async () => button("Change focus").click());
+    act(() => setInputValue(input("Active topic"), "Access to parks across neighborhoods"));
     await act(async () => input("Do both").click());
+    await act(async () => button("Apply focus").click());
+    await settle();
+    expect(document.body.textContent).toContain("Access to parks across neighborhoods");
     expect(document.body.textContent).toContain("Do both");
     await act(async () => button("Finish for now").click());
     expect(document.body.textContent).toContain("Partial thinking saved in this open Session");

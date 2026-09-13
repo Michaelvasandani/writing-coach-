@@ -69,6 +69,7 @@ export type ThoughtDevelopmentSession = {
   nodes: ThoughtNode[]; readiness: DevelopmentReadiness; frontier: ThoughtNodeId[]; transcript: ThoughtTranscriptTurn[];
   notes: SessionNote[]; shapes: ArticleShape[]; selectedShapeId: string | null; request: ThoughtRequestState | null; lastError: string | null;
   shapeRequest: ArticleShapeRequestState | null; shapeIssue: ArticleShapeIssue | null;
+  structuresOffered: boolean;
   phase: "active" | "finished";
 };
 export type ProposedNoteChange =
