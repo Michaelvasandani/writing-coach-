@@ -349,4 +349,99 @@ describe("Thought Development dialog", () => {
     expect(shapeRequest.notes.map((note: { id: string }) => note.id)).toEqual(["note-central", "note-reason", "note-support"]);
     expect(fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)).articleBoundary)).toEqual(Array(5).fill(boundary));
   });
+
+  async function renderSessionWithOneNote(onClose = vi.fn()) {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn()
+      .mockReturnValueOnce("session-1").mockReturnValueOnce("opening-1").mockReturnValueOnce("writer-1") });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      const hasAnswer = request.turnId === "writer-1";
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary,
+        proposedNoteChanges: hasAnswer ? [{ kind: "upsert", note: {
+          id: "note-1", role: "central_point", text: "Parks make daily nature available.",
+          sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+        } }] : [],
+        readinessPatch: hasAnswer ? [{ nodeId: "central_point", status: "addressed" }] : [],
+        nextAction: { kind: "ask_question", targetNodeId: hasAnswer ? "reasoning" : "central_point", question: hasAnswer
+          ? "Why does that availability matter?"
+          : "What central point do you want readers to understand?" }
+      }) } as Response;
+    }));
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Why local parks matter" onClose={onClose} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+    act(() => setInputValue(input("Your answer"), "Parks make daily nature available."));
+    await act(async () => button("Continue").click());
+    await settle();
+    return onClose;
+  }
+
+  it("reviews partial work and copies concise notes separately from the transcript", async () => {
+    const writeText = vi.fn(async (_value: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    await renderSessionWithOneNote();
+
+    await act(async () => button("Finish for now").click());
+    expect(document.body.textContent).toContain("Review your Session");
+    await act(async () => button("Copy notes").click());
+    await act(async () => button("Copy transcript").click());
+
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(writeText.mock.calls[0][0]).toContain("## Session Notes");
+    expect(writeText.mock.calls[0][0]).toContain("### Central point");
+    expect(writeText.mock.calls[0][0]).toContain("## Unresolved Questions");
+    expect(writeText.mock.calls[0][0]).not.toContain("Thought-Development Transcript");
+    expect(writeText.mock.calls[1][0]).toContain("# Thought-Development Transcript");
+    expect(writeText.mock.calls[1][0]).not.toContain("## Session Notes");
+  });
+
+  it("closes an empty Session directly without a loss warning", async () => {
+    const onClose = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [],
+        nextAction: { kind: "ask_question", targetNodeId: "central_point", question: "What central point do you want readers to understand?" }
+      }) } as Response;
+    }));
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Parks" onClose={onClose} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close Thought Development"]')!.click());
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("Discard this temporary Session?");
+  });
+
+  it("offers Keep working and Close without copying for a non-empty Session", async () => {
+    const onClose = await renderSessionWithOneNote();
+    const close = () => document.querySelector<HTMLButtonElement>('[aria-label="Close Thought Development"]')!.click();
+
+    await act(async () => close());
+    expect(document.body.textContent).toContain("Discard this temporary Session?");
+    await act(async () => button("Keep working").click());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("Discard this temporary Session?");
+
+    await act(async () => close());
+    await act(async () => button("Close without copying").click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies exactly once and then discards from the loss confirmation", async () => {
+    const writeText = vi.fn(async (_value: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const onClose = await renderSessionWithOneNote();
+
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close Thought Development"]')!.click());
+    await act(async () => button("Copy and close").click());
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toContain("## Session Notes");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

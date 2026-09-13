@@ -336,6 +336,53 @@ export function removeShapeNote(session: ThoughtDevelopmentSession, shapeId: str
   }));
 }
 
+function markdownLine(text: string) {
+  return text.trim().replace(/\s*\n+\s*/g, " ");
+}
+
+export function formatSessionNotesMarkdown(session: ThoughtDevelopmentSession): string {
+  const sections: string[] = [`# ${markdownLine(session.topic)}`, "## Session Notes"];
+  const notesByRole = new Map<ThoughtNodeId, string[]>();
+  for (const note of session.notes) {
+    const notes = notesByRole.get(note.role) ?? [];
+    notes.push(markdownLine(note.text));
+    notesByRole.set(note.role, notes);
+  }
+  for (const node of session.nodes) {
+    const notes = notesByRole.get(node.id);
+    if (notes?.length) sections.push(`### ${node.label}\n\n${notes.map((note) => `- ${note}`).join("\n")}`);
+  }
+  if (!session.notes.length) sections.push("_No Session Notes._");
+
+  const selectedShape = session.shapes.find((shape) => shape.id === session.selectedShapeId);
+  if (selectedShape) {
+    const noteTextById = new Map(session.notes.map((note) => [note.id, markdownLine(note.text)]));
+    const shapeLines = selectedShape.sections.map((section, index) => {
+      const noteLines = section.noteIds.flatMap((noteId) => {
+        const text = noteTextById.get(noteId);
+        return text ? [`   - ${text}`] : [];
+      });
+      return [`${index + 1}. **${markdownLine(section.purpose)}**`, ...noteLines].join("\n");
+    });
+    sections.push(`## Selected Article Shape\n\n_${markdownLine(selectedShape.organizingLogic)}_\n\n${shapeLines.join("\n")}\n\nTradeoff: ${markdownLine(selectedShape.tradeoff)}`);
+  }
+
+  const unanswered = session.nodes.filter((node) => session.readiness[node.id] === "unresolved");
+  if (unanswered.length) {
+    const latestQuestions = new Map<ThoughtNodeId, string>();
+    for (const turn of session.transcript) {
+      if (turn.role === "coach") latestQuestions.set(turn.targetNodeId, markdownLine(turn.text));
+    }
+    sections.push(`## Unresolved Questions\n\n${unanswered.map((node) => `- **${node.label}:** ${latestQuestions.get(node.id) ?? "Not yet explored."}`).join("\n")}`);
+  }
+  return sections.join("\n\n");
+}
+
+export function formatThoughtTranscriptMarkdown(session: ThoughtDevelopmentSession): string {
+  const turns = session.transcript.map((turn) => `**${turn.role === "coach" ? "Coach" : "Writer"}:** ${markdownLine(turn.text)}`);
+  return [`# Thought-Development Transcript`, `## ${markdownLine(session.topic)}`, ...turns].join("\n\n");
+}
+
 export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSession, response: ThoughtResponse): ThoughtDevelopmentSession {
   const request = session.request;
   if (!request || request.status !== "pending" || response.turnId !== request.turnId) throw new Error("stale turn identity");
@@ -363,7 +410,16 @@ export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSessi
   const notes = applyNoteChanges(session, response.proposedNoteChanges);
   const transcript = session.transcript.map((turn) => turn.role === "writer" && turn.id === request.turnId ? { ...turn, status: "accepted" as const } : turn);
   if (response.nextAction.kind === "ask_question") transcript.push({ id: `coach-${response.turnId}`, role: "coach", targetNodeId: response.nextAction.targetNodeId, text: response.nextAction.question });
-  return { ...session, readiness, frontier, notes, transcript, request: null, lastError: null };
+  return {
+    ...session,
+    readiness,
+    frontier,
+    notes,
+    transcript,
+    request: null,
+    lastError: null,
+    phase: response.nextAction.kind === "complete" ? "finished" : session.phase
+  };
 }
 
 export type ThoughtDevelopmentAction =
