@@ -113,4 +113,103 @@ describe("Thought Development dialog", () => {
     expect(document.body.textContent?.match(/Parks make daily nature available\./g)).toHaveLength(1);
     expect(document.body.textContent).toContain("Why does that point matter?");
   });
+
+  it("keeps grounded notes in an editable drawer beside visible readiness", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      const writerTurn = request.transcript.find((turn: { role: string }) => turn.role === "writer");
+      return { ok: true, json: async () => writerTurn ? ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId, targetNodeId: "central_point",
+        articleBoundary: boundary,
+        proposedNoteChanges: [{ kind: "upsert", note: {
+          id: "note-1", role: "central_point", text: writerTurn.text, sourceTurnIds: [writerTurn.id], provenance: "coach-proposed"
+        } }],
+        readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+        nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+      }) : ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId, targetNodeId: "central_point",
+        articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [],
+        nextAction: { kind: "ask_question", targetNodeId: "central_point", question: "What central point do you want readers to understand?" }
+      }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Parks" onClose={() => {}} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+    act(() => setInputValue(input("Your answer"), "Parks make daily nature available."));
+    await act(async () => button("Continue").click());
+    await settle();
+
+    expect(document.body.textContent).toContain("Central point");
+    expect(document.body.textContent).toContain("Addressed");
+    await act(async () => button("Notes (1)").click());
+    expect(input("Edit Central point note").value).toBe("Parks make daily nature available.");
+    expect(document.body.textContent).toContain("Supported by: Parks make daily nature available.");
+
+    act(() => setInputValue(input("Edit Central point note"), "Parks make nearby nature available."));
+    await act(async () => button("Save note").click());
+    expect(input("Edit Central point note").value).toBe("Parks make nearby nature available.");
+    await act(async () => button("Delete note").click());
+    expect(document.body.textContent).toContain("No notes collected yet.");
+  });
+
+  it("lets the Writer skip a gap and revise an earlier answer while readiness recomputes", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn()
+      .mockReturnValueOnce("session-1").mockReturnValueOnce("opening-1")
+      .mockReturnValueOnce("skip-1").mockReturnValueOnce("writer-1") });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      const questions: Record<string, { target: string; question: string }> = {
+        "opening-1": { target: "central_point", question: "What central point do you want readers to understand?" },
+        "skip-1": { target: "reasoning", question: "What reasoning do you want to examine?" },
+        "writer-1": { target: "reader_relevance", question: "What should the intended reader understand?" }
+      };
+      const next = questions[request.turnId];
+      const hasWriter = request.turnId === "writer-1";
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary, proposedNoteChanges: [],
+        readinessPatch: hasWriter ? [{ nodeId: "reasoning", status: "addressed" }] : [],
+        nextAction: { kind: "ask_question", targetNodeId: next.target, question: next.question }
+      }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Parks" onClose={() => {}} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+    await act(async () => button("Skip").click());
+    await settle();
+    expect(document.body.textContent).toContain("Skipped");
+    expect(document.body.textContent).toContain("What reasoning do you want to examine?");
+
+    act(() => setInputValue(input("Your answer"), "Access matters because a garden is not required."));
+    await act(async () => button("Continue").click());
+    await settle();
+    await act(async () => button("Revise answer").click());
+    expect(input("Revise your answer").value).toBe("Access matters because a garden is not required.");
+  });
+
+  it("can change focus or finish with partial work still visible", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [],
+        nextAction: { kind: "ask_question", targetNodeId: "central_point", question: "What central point do you want readers to understand?" }
+      }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Parks" onClose={() => {}} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+
+    await act(async () => button("Change focus").click());
+    await act(async () => input("Do both").click());
+    expect(document.body.textContent).toContain("Do both");
+    await act(async () => button("Finish for now").click());
+    expect(document.body.textContent).toContain("Partial thinking saved in this open Session");
+    expect(document.body.textContent).toContain("Unresolved");
+  });
 });

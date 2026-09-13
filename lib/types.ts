@@ -49,6 +49,7 @@ export type ThoughtTranscriptTurn =
   | { id: string; role: "coach"; targetNodeId: ThoughtNodeId; text: string };
 export type SessionNote = {
   id: string; role: ThoughtNodeId; text: string; sourceTurnIds: string[]; provenance: "coach-proposed" | "writer-edited";
+  needsReview?: boolean;
 };
 export type ArticleShapeSection = { id: string; purpose: string; noteIds: string[] };
 export type ArticleShape = { id: string; organizingLogic: string; tradeoff: string; sections: ArticleShapeSection[] };
@@ -59,6 +60,7 @@ export type ThoughtDevelopmentSession = {
   id: string; topic: string; focus: DevelopmentFocus; source: ThoughtSource; articleBoundary: ThoughtArticleBoundary;
   nodes: ThoughtNode[]; readiness: DevelopmentReadiness; frontier: ThoughtNodeId[]; transcript: ThoughtTranscriptTurn[];
   notes: SessionNote[]; shapes: ArticleShape[]; selectedShapeId: string | null; request: ThoughtRequestState | null; lastError: string | null;
+  phase: "active" | "finished";
 };
 export type ProposedNoteChange =
   | { kind: "upsert"; note: SessionNote }
