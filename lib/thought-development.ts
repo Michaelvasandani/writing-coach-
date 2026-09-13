@@ -1,5 +1,5 @@
 import type {
-  DevelopmentFocus, DevelopmentReadiness, ProposedNoteChange, ThoughtArticleBoundary, ThoughtDevelopmentSession,
+  ArticleShape, ArticleShapeResponse, DevelopmentFocus, DevelopmentReadiness, ProposedNoteChange, ThoughtArticleBoundary, ThoughtDevelopmentSession,
   ThoughtNode, ThoughtNodeId, ThoughtResponse, ThoughtSource
 } from "@/lib/types";
 
@@ -37,7 +37,7 @@ export function createThoughtDevelopmentSession(input: {
   const frontier = deriveThoughtFrontier(nodes, readiness, input.focus);
   return {
     id: input.id, topic, focus: input.focus, source: input.source ?? { kind: "general" }, articleBoundary: { ...input.articleBoundary },
-    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null, phase: "active",
+    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null, shapeRequest: null, shapeIssue: null, phase: "active",
     request: { turnId: input.requestId, targetNodeId: frontier[0], status: "pending" }, lastError: null
   };
 }
@@ -57,6 +57,11 @@ function sameBoundary(a: ThoughtArticleBoundary, b: ThoughtArticleBoundary) {
 }
 
 const groundingStopWords = new Set(["about", "after", "again", "also", "because", "before", "being", "could", "does", "from", "have", "into", "more", "most", "only", "other", "should", "their", "there", "these", "they", "this", "those", "through", "very", "what", "when", "where", "which", "while", "with", "would"]);
+const shapeVocabulary = new Set([
+  "arrange", "arrangement", "arrives", "begin", "central", "compare", "concrete", "connect", "contrast", "delay", "delayed",
+  "describe", "develop", "emphasis", "emphasize", "emphasizes", "example", "explain", "frame", "introduce", "last", "lead", "logic",
+  "main", "move", "naming", "order", "organize", "point", "present", "reason", "reasoning", "section", "state", "structure", "support", "then", "tradeoff"
+]);
 
 function groundingTokens(text: string) {
   return text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter((token) => token.length > 3 && !groundingStopWords.has(token)) ?? [];
@@ -101,7 +106,12 @@ export function editSessionNote(session: ThoughtDevelopmentSession, noteId: stri
 
 export function deleteSessionNote(session: ThoughtDevelopmentSession, noteId: string): ThoughtDevelopmentSession {
   const notes = session.notes.filter((note) => note.id !== noteId);
-  return notes.length === session.notes.length ? session : { ...session, notes };
+  if (notes.length === session.notes.length) return session;
+  const shapes = session.shapes.map((shape) => ({
+    ...shape,
+    sections: shape.sections.map((section) => ({ ...section, noteIds: section.noteIds.filter((id) => id !== noteId) }))
+  }));
+  return { ...session, notes, shapes };
 }
 
 function dependentNodeIds(session: ThoughtDevelopmentSession, nodeId: ThoughtNodeId) {
@@ -136,8 +146,8 @@ export function reviseThoughtAnswer(session: ThoughtDevelopmentSession, turnId: 
   const readiness = { ...session.readiness };
   for (const nodeId of affectedNodes) readiness[nodeId] = "unresolved";
   return {
-    ...session, transcript, notes, readiness, frontier: deriveThoughtFrontier(session.nodes, readiness, session.focus),
-    request: { turnId, targetNodeId: turn.targetNodeId, status: "pending" }, lastError: null, phase: "active"
+    ...session, transcript, notes, readiness, frontier: deriveThoughtFrontier(session.nodes, readiness, session.focus), shapes: [], selectedShapeId: null,
+    request: { turnId, targetNodeId: turn.targetNodeId, status: "pending" }, shapeIssue: null, lastError: null, phase: "active"
   };
 }
 
@@ -161,6 +171,169 @@ export function finishThoughtDevelopment(session: ThoughtDevelopmentSession): Th
 
 export function isThoughtCheckpoint(questionCount: number) {
   return questionCount >= 5 && (questionCount - 5) % 3 === 0;
+}
+
+function currentShapeNotes(session: ThoughtDevelopmentSession) {
+  return session.notes.filter((note) => !note.needsReview);
+}
+
+export function canExploreArticleShapes(session: ThoughtDevelopmentSession) {
+  const notes = currentShapeNotes(session);
+  return notes.some((note) => note.role === "central_point")
+    && notes.filter((note) => note.role !== "central_point").length >= 2;
+}
+
+export function beginArticleShapeExploration(session: ThoughtDevelopmentSession, requestId: string): ThoughtDevelopmentSession {
+  if (!requestId || session.request || session.shapeRequest) return session;
+  return { ...session, shapeRequest: { requestId, status: "pending" }, shapeIssue: null, lastError: null };
+}
+
+export function failArticleShapeRequest(session: ThoughtDevelopmentSession, message: string): ThoughtDevelopmentSession {
+  if (!session.shapeRequest) return session;
+  return {
+    ...session,
+    shapeRequest: { ...session.shapeRequest, status: "failed", error: message },
+    lastError: message
+  };
+}
+
+export function retryArticleShapeRequest(session: ThoughtDevelopmentSession): ThoughtDevelopmentSession {
+  if (session.shapeRequest?.status !== "failed") return session;
+  return { ...session, shapeRequest: { requestId: session.shapeRequest.requestId, status: "pending" }, lastError: null };
+}
+
+export function buildArticleShapeRequest(session: ThoughtDevelopmentSession) {
+  if (!session.shapeRequest || session.shapeRequest.status !== "pending") throw new Error("No pending Article Shape request");
+  return {
+    contract: "thought-development.v1" as const,
+    requestKind: "explore_structures" as const,
+    sessionId: session.id,
+    requestId: session.shapeRequest.requestId,
+    topic: session.topic,
+    focus: session.focus,
+    articleBoundary: session.articleBoundary,
+    notes: currentShapeNotes(session).map((note) => ({ ...note, sourceTurnIds: [...note.sourceTurnIds] })),
+    readiness: { ...session.readiness }
+  };
+}
+
+function validateShape(shape: ArticleShape, noteIds: Set<string>) {
+  const shapeSectionIds = new Set<string>();
+  const usedNoteIds = new Set<string>();
+  if (!shape.id.trim() || !shape.organizingLogic.trim() || !shape.tradeoff.trim() || !shape.sections.length) throw new Error("invalid Article Shape");
+  for (const section of shape.sections) {
+    if (!section.id.trim() || shapeSectionIds.has(section.id) || !section.purpose.trim() || section.purpose.length > 80 || !section.noteIds.length) {
+      throw new Error("invalid Article Shape section");
+    }
+    shapeSectionIds.add(section.id);
+    for (const noteId of section.noteIds) {
+      if (!noteIds.has(noteId)) throw new Error("Article Shapes must reference current Session Notes");
+      if (usedNoteIds.has(noteId)) throw new Error("a Session Note can appear only once in an Article Shape");
+      usedNoteIds.add(noteId);
+    }
+  }
+}
+
+function isGroundedShapeMetadata(shape: ArticleShape, noteText: string) {
+  const noteTokens = new Set(groundingTokens(noteText));
+  const metadata = [shape.organizingLogic, shape.tradeoff, ...shape.sections.map((section) => section.purpose)].join(" ");
+  return groundingTokens(metadata).every((token) => noteTokens.has(token) || shapeVocabulary.has(token));
+}
+
+export function applyArticleShapeResponse(session: ThoughtDevelopmentSession, response: ArticleShapeResponse): ThoughtDevelopmentSession {
+  const pending = session.shapeRequest;
+  if (!pending || pending.status !== "pending" || response.requestId !== pending.requestId) throw new Error("stale Article Shape request");
+  if (response.contract !== "thought-development.v1" || response.sessionId !== session.id) throw new Error("stale Session identity");
+  if (!sameBoundary(response.articleBoundary, session.articleBoundary)) throw new Error("Article boundary changed");
+
+  if (response.kind === "unresolved") {
+    if (!isNeutralSingleQuestion(response.question)) throw new Error("follow-up must be one neutral question");
+    const readiness = { ...session.readiness, [response.unresolvedArea]: "unresolved" as const };
+    const questionId = `coach-shape-${response.requestId}`;
+    return {
+      ...session,
+      readiness,
+      frontier: deriveThoughtFrontier(session.nodes, readiness, session.focus),
+      transcript: [...session.transcript, { id: questionId, role: "coach", targetNodeId: response.unresolvedArea, text: response.question }],
+      shapes: [],
+      selectedShapeId: null,
+      shapeRequest: null,
+      shapeIssue: { unresolvedArea: response.unresolvedArea, question: response.question },
+      phase: "active",
+      lastError: null
+    };
+  }
+
+  if (!canExploreArticleShapes(session)) throw new Error("current Session Notes are not sufficient for Article Shapes");
+  if (!response.shapes.length || response.shapes.length > 3) throw new Error("Article Shape responses must contain one to three Shapes");
+  const shapeIds = new Set<string>();
+  const currentNotes = currentShapeNotes(session);
+  const noteIds = new Set(currentNotes.map((note) => note.id));
+  for (const shape of response.shapes) {
+    if (shapeIds.has(shape.id)) throw new Error("Article Shape IDs must be unique");
+    shapeIds.add(shape.id);
+    validateShape(shape, noteIds);
+    if (!isGroundedShapeMetadata(shape, currentNotes.map((note) => note.text).join(" "))) throw new Error("unsupported Article Shape substance");
+  }
+  const shapes = response.shapes.map((shape) => ({
+    ...shape,
+    organizingLogic: shape.organizingLogic.trim(),
+    tradeoff: shape.tradeoff.trim(),
+    sections: shape.sections.map((section) => ({ ...section, purpose: section.purpose.trim(), noteIds: [...section.noteIds] }))
+  }));
+  return { ...session, shapes, selectedShapeId: shapes[0]?.id ?? null, shapeRequest: null, shapeIssue: null, lastError: null };
+}
+
+function updateShape(session: ThoughtDevelopmentSession, shapeId: string, update: (shape: ArticleShape) => ArticleShape): ThoughtDevelopmentSession {
+  if (!session.shapes.some((shape) => shape.id === shapeId)) return session;
+  return { ...session, shapes: session.shapes.map((shape) => shape.id === shapeId ? update(shape) : shape) };
+}
+
+export function selectArticleShape(session: ThoughtDevelopmentSession, shapeId: string): ThoughtDevelopmentSession {
+  return session.shapes.some((shape) => shape.id === shapeId) ? { ...session, selectedShapeId: shapeId } : session;
+}
+
+export function renameShapeSection(session: ThoughtDevelopmentSession, shapeId: string, sectionId: string, purpose: string): ThoughtDevelopmentSession {
+  const nextPurpose = purpose.trim();
+  if (!nextPurpose) return session;
+  return updateShape(session, shapeId, (shape) => ({
+    ...shape,
+    sections: shape.sections.map((section) => section.id === sectionId ? { ...section, purpose: nextPurpose } : section)
+  }));
+}
+
+export function reorderShapeSection(session: ThoughtDevelopmentSession, shapeId: string, sectionId: string, direction: "up" | "down"): ThoughtDevelopmentSession {
+  return updateShape(session, shapeId, (shape) => {
+    const index = shape.sections.findIndex((section) => section.id === sectionId);
+    const destination = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || destination < 0 || destination >= shape.sections.length) return shape;
+    const sections = shape.sections.map((section) => ({ ...section, noteIds: [...section.noteIds] }));
+    [sections[index], sections[destination]] = [sections[destination], sections[index]];
+    return { ...shape, sections };
+  });
+}
+
+export function moveShapeNote(session: ThoughtDevelopmentSession, shapeId: string, noteId: string, toSectionId: string): ThoughtDevelopmentSession {
+  if (!session.notes.some((note) => note.id === noteId)) return session;
+  return updateShape(session, shapeId, (shape) => {
+    if (!shape.sections.some((section) => section.id === toSectionId)) return shape;
+    return {
+      ...shape,
+      sections: shape.sections.map((section) => ({
+        ...section,
+        noteIds: section.id === toSectionId
+          ? [...section.noteIds.filter((id) => id !== noteId), noteId]
+          : section.noteIds.filter((id) => id !== noteId)
+      }))
+    };
+  });
+}
+
+export function removeShapeNote(session: ThoughtDevelopmentSession, shapeId: string, noteId: string): ThoughtDevelopmentSession {
+  return updateShape(session, shapeId, (shape) => ({
+    ...shape,
+    sections: shape.sections.map((section) => ({ ...section, noteIds: section.noteIds.filter((id) => id !== noteId) }))
+  }));
 }
 
 export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSession, response: ThoughtResponse): ThoughtDevelopmentSession {
@@ -201,11 +374,11 @@ export type ThoughtDevelopmentAction =
 
 export function thoughtDevelopmentReducer(session: ThoughtDevelopmentSession, action: ThoughtDevelopmentAction): ThoughtDevelopmentSession {
   if (action.type === "submit_answer") {
-    if (session.request) return session;
+    if (session.request || session.shapeRequest) return session;
     const question = [...session.transcript].reverse().find((turn) => turn.role === "coach");
     const text = action.text.trim();
     if (!question || !text) return session;
-    return { ...session, transcript: [...session.transcript, { id: action.turnId, role: "writer", targetNodeId: question.targetNodeId, text, status: "pending" }], request: { turnId: action.turnId, targetNodeId: question.targetNodeId, status: "pending" }, lastError: null };
+    return { ...session, transcript: [...session.transcript, { id: action.turnId, role: "writer", targetNodeId: question.targetNodeId, text, status: "pending" }], request: { turnId: action.turnId, targetNodeId: question.targetNodeId, status: "pending" }, shapeIssue: null, lastError: null };
   }
   if (action.type === "request_failed") {
     if (!session.request) return session;

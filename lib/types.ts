@@ -53,13 +53,22 @@ export type SessionNote = {
 };
 export type ArticleShapeSection = { id: string; purpose: string; noteIds: string[] };
 export type ArticleShape = { id: string; organizingLogic: string; tradeoff: string; sections: ArticleShapeSection[] };
+export type ArticleShapeResponse = {
+  contract: "thought-development.v1"; sessionId: string; requestId: string; articleBoundary: ThoughtArticleBoundary;
+} & (
+  | { kind: "shapes"; shapes: ArticleShape[] }
+  | { kind: "unresolved"; unresolvedArea: ThoughtNodeId; question: string }
+);
 export type ThoughtRequestState = {
   turnId: string; targetNodeId: ThoughtNodeId; status: "pending" | "failed"; error?: string;
 };
+export type ArticleShapeRequestState = { requestId: string; status: "pending" | "failed"; error?: string };
+export type ArticleShapeIssue = { unresolvedArea: ThoughtNodeId; question: string };
 export type ThoughtDevelopmentSession = {
   id: string; topic: string; focus: DevelopmentFocus; source: ThoughtSource; articleBoundary: ThoughtArticleBoundary;
   nodes: ThoughtNode[]; readiness: DevelopmentReadiness; frontier: ThoughtNodeId[]; transcript: ThoughtTranscriptTurn[];
   notes: SessionNote[]; shapes: ArticleShape[]; selectedShapeId: string | null; request: ThoughtRequestState | null; lastError: string | null;
+  shapeRequest: ArticleShapeRequestState | null; shapeIssue: ArticleShapeIssue | null;
   phase: "active" | "finished";
 };
 export type ProposedNoteChange =

@@ -260,4 +260,93 @@ describe("Thought Development dialog", () => {
     expect(document.body.textContent).toContain("Partial thinking saved in this open Session");
     expect(document.body.textContent).toContain("Unresolved");
   });
+
+  it("enables explicit grounded Shape exploration and exposes temporary Shape edits", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn()
+      .mockReturnValueOnce("session-1").mockReturnValueOnce("opening-1")
+      .mockReturnValueOnce("writer-1").mockReturnValueOnce("writer-2")
+      .mockReturnValueOnce("writer-3").mockReturnValueOnce("shape-request-1") });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      if (request.requestKind === "explore_structures") {
+        return { ok: true, json: async () => ({
+          contract: "thought-development.v1", kind: "shapes", sessionId: request.sessionId,
+          requestId: request.requestId, articleBoundary: boundary,
+          shapes: [
+            {
+              id: "shape-1", organizingLogic: "Lead with the point, then explain and support it.",
+              tradeoff: "The concrete support arrives last.", sections: [
+                { id: "shape-1-section-1", purpose: "State the central point", noteIds: ["note-central"] },
+                { id: "shape-1-section-2", purpose: "Develop the support", noteIds: ["note-reason", "note-support"] }
+              ]
+            },
+            {
+              id: "shape-2", organizingLogic: "Begin with support before naming the point.",
+              tradeoff: "The central point is delayed.", sections: [
+                { id: "shape-2-section-1", purpose: "Present the concrete support", noteIds: ["note-support"] },
+                { id: "shape-2-section-2", purpose: "Connect support to the point", noteIds: ["note-central", "note-reason"] }
+              ]
+            }
+          ]
+        }) } as Response;
+      }
+      const responses: Record<string, object> = {
+        "opening-1": { proposedNoteChanges: [], readinessPatch: [], nextAction: { kind: "ask_question", targetNodeId: "central_point", question: "What central point do you want readers to understand?" } },
+        "writer-1": {
+          proposedNoteChanges: [{ kind: "upsert", note: { id: "note-central", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } }],
+          readinessPatch: [{ nodeId: "central_point", status: "addressed" }], nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+        },
+        "writer-2": {
+          proposedNoteChanges: [{ kind: "upsert", note: { id: "note-reason", role: "reasoning", text: "Nearby access makes nature part of an ordinary day.", sourceTurnIds: ["writer-2"], provenance: "coach-proposed" } }],
+          readinessPatch: [{ nodeId: "reasoning", status: "addressed" }], nextAction: { kind: "ask_question", targetNodeId: "support", question: "What support from your experience makes that concrete?" }
+        },
+        "writer-3": {
+          proposedNoteChanges: [{ kind: "upsert", note: { id: "note-support", role: "support", text: "People without gardens can walk to the park.", sourceTurnIds: ["writer-3"], provenance: "coach-proposed" } }],
+          readinessPatch: [{ nodeId: "support", status: "addressed" }], nextAction: { kind: "ask_question", targetNodeId: "reader_relevance", question: "What should the intended reader understand?" }
+        }
+      };
+      return { ok: true, json: async () => ({
+        contract: "thought-development.v1", sessionId: request.sessionId, turnId: request.turnId,
+        targetNodeId: request.targetNodeId, articleBoundary: boundary, ...responses[request.turnId]
+      }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<ThoughtDevelopmentDialog articleBoundary={boundary} initialTopic="Parks" onClose={() => {}} />));
+    await act(async () => button("Begin Session").click());
+    await settle();
+    expect(button("Explore structures").disabled).toBe(true);
+
+    for (const answer of [
+      "Parks make daily nature available.",
+      "Nearby access makes nature part of an ordinary day.",
+      "People without gardens can walk to the park."
+    ]) {
+      act(() => setInputValue(input("Your answer"), answer));
+      await act(async () => button("Continue").click());
+      await settle();
+    }
+
+    expect(button("Explore structures").disabled).toBe(false);
+    await act(async () => button("Explore structures").click());
+    await settle();
+    expect(document.body.textContent).toContain("Lead with the point, then explain and support it.");
+    expect(document.body.textContent).toContain("The central point is delayed.");
+
+    await act(async () => button("Select Shape 2").click());
+    expect(document.body.textContent).toContain("Selected Shape");
+    act(() => setInputValue(input("Rename Present the concrete support"), "Open with lived support"));
+    await act(async () => button("Save purpose").click());
+    expect(document.body.textContent).toContain("Open with lived support");
+    await act(async () => button("Move Connect support to the point up").click());
+    const sectionPurposes = [...document.querySelectorAll(".shape-section input")].map((element) => (element as HTMLInputElement).value);
+    expect(sectionPurposes).toEqual(["Connect support to the point", "Open with lived support"]);
+    await act(async () => button("Remove People without gardens can walk to the park.").click());
+    expect(document.body.textContent).not.toContain("People without gardens can walk to the park.Remove");
+
+    const shapeRequest = JSON.parse(String(fetchMock.mock.calls[4][1]?.body));
+    expect(shapeRequest.requestKind).toBe("explore_structures");
+    expect(shapeRequest.notes.map((note: { id: string }) => note.id)).toEqual(["note-central", "note-reason", "note-support"]);
+    expect(fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)).articleBoundary)).toEqual(Array(5).fill(boundary));
+  });
 });

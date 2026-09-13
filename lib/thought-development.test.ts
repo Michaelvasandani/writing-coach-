@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyArticleShapeResponse,
+  beginArticleShapeExploration,
+  buildArticleShapeRequest,
   buildThoughtRequest,
+  canExploreArticleShapes,
   createThoughtDevelopmentSession,
   deleteSessionNote,
   editSessionNote,
   finishThoughtDevelopment,
   isThoughtCheckpoint,
+  moveShapeNote,
+  removeShapeNote,
+  renameShapeSection,
+  reorderShapeSection,
+  retryArticleShapeRequest,
   reviseThoughtAnswer,
+  selectArticleShape,
   skipThoughtNode,
   thoughtDevelopmentReducer,
   updateDevelopmentFocus,
   validateAndApplyThoughtResponse
 } from "@/lib/thought-development";
-import type { ThoughtResponse } from "@/lib/types";
-import { thoughtOutputSchema } from "@/lib/contracts/thought";
+import type { ArticleShapeResponse, ThoughtDevelopmentSession, ThoughtResponse } from "@/lib/types";
+import { articleShapeOutputSchema, thoughtOutputSchema } from "@/lib/contracts/thought";
 
 const boundary = {
   articleId: "article-1",
@@ -253,5 +263,133 @@ describe("Session Notes and Development Readiness", () => {
 
   it("offers reflection after question five and every three questions thereafter", () => {
     expect([1, 4, 5, 6, 8, 11, 12].filter(isThoughtCheckpoint)).toEqual([5, 8, 11]);
+  });
+});
+
+describe("temporary Article Shapes", () => {
+  function shapeReadySession(): ThoughtDevelopmentSession {
+    const created = createThoughtDevelopmentSession({
+      id: "session-1", topic: "Why local parks matter", focus: "both", articleBoundary: boundary, requestId: "opening-1"
+    });
+    return {
+      ...created,
+      readiness: {
+        central_point: "addressed", reasoning: "addressed", support: "addressed",
+        reader_relevance: "unresolved", structural_placement: "unresolved"
+      },
+      frontier: ["reader_relevance", "structural_placement"],
+      request: null,
+      transcript: [
+        { id: "writer-1", role: "writer", targetNodeId: "central_point", text: "Parks make daily nature available.", status: "accepted" },
+        { id: "writer-2", role: "writer", targetNodeId: "reasoning", text: "Nearby access makes nature part of an ordinary day.", status: "accepted" },
+        { id: "writer-3", role: "writer", targetNodeId: "support", text: "People without gardens can walk to the park.", status: "accepted" }
+      ],
+      notes: [
+        { id: "note-central", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" },
+        { id: "note-reason", role: "reasoning", text: "Nearby access makes nature part of an ordinary day.", sourceTurnIds: ["writer-2"], provenance: "writer-edited" },
+        { id: "note-support", role: "support", text: "People without gardens can walk to the park.", sourceTurnIds: ["writer-3"], provenance: "coach-proposed" }
+      ]
+    };
+  }
+
+  const shapesResponse: ArticleShapeResponse = {
+    contract: "thought-development.v1",
+    kind: "shapes",
+    sessionId: "session-1",
+    requestId: "shape-request-1",
+    articleBoundary: boundary,
+    shapes: [{
+      id: "shape-1",
+      organizingLogic: "Move from the main point to its reason and concrete support.",
+      tradeoff: "The example arrives after the reasoning.",
+      sections: [
+        { id: "section-1", purpose: "State the central point", noteIds: ["note-central"] },
+        { id: "section-2", purpose: "Explain the reason", noteIds: ["note-reason", "note-support"] }
+      ]
+    }]
+  };
+
+  it("requires one central-point note and two current supporting notes before exploration is available", () => {
+    const ready = shapeReadySession();
+    expect(canExploreArticleShapes(ready)).toBe(true);
+    expect(canExploreArticleShapes({ ...ready, notes: ready.notes.slice(0, 2) })).toBe(false);
+    expect(canExploreArticleShapes({ ...ready, notes: ready.notes.filter((note) => note.role !== "central_point") })).toBe(false);
+    expect(canExploreArticleShapes({ ...ready, notes: ready.notes.map((note) => note.id === "note-reason" ? { ...note, needsReview: true } : note) })).toBe(false);
+  });
+
+  it("builds an explicit structure request from the current Writer-edited note set", () => {
+    const pending = beginArticleShapeExploration(shapeReadySession(), "shape-request-1");
+    expect(buildArticleShapeRequest(pending)).toMatchObject({
+      requestKind: "explore_structures",
+      sessionId: "session-1",
+      requestId: "shape-request-1",
+      notes: [
+        expect.objectContaining({ id: "note-central", text: "Parks make daily nature available." }),
+        expect.objectContaining({ id: "note-reason", text: "Nearby access makes nature part of an ordinary day.", provenance: "writer-edited" }),
+        expect.objectContaining({ id: "note-support" })
+      ]
+    });
+  });
+
+  it("retries a failed structure request with the same request identity", () => {
+    const pending = beginArticleShapeExploration(shapeReadySession(), "shape-request-1");
+    const failed = { ...pending, shapeRequest: { requestId: "shape-request-1", status: "failed" as const, error: "Coach unavailable" } };
+    const retried = retryArticleShapeRequest(failed);
+    expect(retried.shapeRequest).toEqual({ requestId: "shape-request-1", status: "pending" });
+    expect(buildArticleShapeRequest(retried).requestId).toBe("shape-request-1");
+  });
+
+  it("turns insufficient or contradictory material into the exact unresolved area and one neutral follow-up", () => {
+    const sparse = { ...shapeReadySession(), notes: shapeReadySession().notes.slice(0, 1) };
+    const pending = beginArticleShapeExploration(sparse, "shape-request-1");
+    const next = applyArticleShapeResponse(pending, {
+      contract: "thought-development.v1", kind: "unresolved", sessionId: "session-1", requestId: "shape-request-1",
+      articleBoundary: boundary, unresolvedArea: "reasoning", question: "What reason connects the point to the support you have in mind?"
+    });
+
+    expect(next.shapeIssue).toEqual({ unresolvedArea: "reasoning", question: "What reason connects the point to the support you have in mind?" });
+    expect(next.transcript.at(-1)).toMatchObject({ role: "coach", targetNodeId: "reasoning" });
+    expect(next.shapes).toEqual([]);
+    expect(() => applyArticleShapeResponse(pending, {
+      contract: "thought-development.v1", kind: "unresolved", sessionId: "session-1", requestId: "shape-request-1",
+      articleBoundary: boundary, unresolvedArea: "reasoning", question: "Great point! What reason applies and what example proves it?"
+    })).toThrow("neutral question");
+  });
+
+  it("rejects more than three Shapes, unknown note references, and Article-prose fields atomically", () => {
+    const pending = beginArticleShapeExploration(shapeReadySession(), "shape-request-1");
+    expect(() => applyArticleShapeResponse(pending, { ...shapesResponse, shapes: Array.from({ length: 4 }, (_, index) => ({ ...shapesResponse.shapes[0], id: `shape-${index}` })) })).toThrow();
+    expect(() => applyArticleShapeResponse(pending, {
+      ...shapesResponse,
+      shapes: [{ ...shapesResponse.shapes[0], sections: [{ id: "section-1", purpose: "State the point", noteIds: ["invented-note"] }] }]
+    })).toThrow("current Session Notes");
+    expect(() => applyArticleShapeResponse(pending, {
+      ...shapesResponse,
+      shapes: [{ ...shapesResponse.shapes[0], organizingLogic: "Lead with the clinical benefit before the support." }]
+    })).toThrow("unsupported Article Shape substance");
+    expect(articleShapeOutputSchema.safeParse({ ...shapesResponse, articleProse: "Parks are the lungs of a city." }).success).toBe(false);
+    expect(articleShapeOutputSchema.safeParse({
+      ...shapesResponse,
+      shapes: [{ ...shapesResponse.shapes[0], sections: [{
+        ...shapesResponse.shapes[0].sections[0], heading: "Parks: The Lungs of Our City"
+      }] }]
+    }).success).toBe(false);
+    expect(pending.shapes).toEqual([]);
+  });
+
+  it("selects and edits a grounded Shape without changing the Article boundary", () => {
+    const pending = beginArticleShapeExploration(shapeReadySession(), "shape-request-1");
+    let session = applyArticleShapeResponse(pending, shapesResponse);
+    session = selectArticleShape(session, "shape-1");
+    session = renameShapeSection(session, "shape-1", "section-1", "Frame the everyday access point");
+    session = reorderShapeSection(session, "shape-1", "section-2", "up");
+    session = moveShapeNote(session, "shape-1", "note-central", "section-2");
+    session = removeShapeNote(session, "shape-1", "note-support");
+
+    expect(session.selectedShapeId).toBe("shape-1");
+    expect(session.shapes[0].sections.map((section) => section.id)).toEqual(["section-2", "section-1"]);
+    expect(session.shapes[0].sections.find((section) => section.id === "section-1")?.purpose).toBe("Frame the everyday access point");
+    expect(session.shapes[0].sections.find((section) => section.id === "section-2")?.noteIds).toEqual(["note-reason", "note-central"]);
+    expect(session.articleBoundary).toEqual(boundary);
   });
 });
