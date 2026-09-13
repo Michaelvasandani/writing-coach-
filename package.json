@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
+    "test:thought:live": "RUN_THOUGHT_LIVE_SMOKE=1 vitest run lib/thought-development.live.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

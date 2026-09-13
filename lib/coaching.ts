@@ -58,11 +58,3 @@ export function applySuggestionResponse(
   const structural = ranked.filter((item) => item.scope === "structural").slice(0, 3);
   return [...passage, ...structural];
 }
-
-export function findFrontier(nodes: { id: string; prerequisites: string[]; status: "ready" | "blocked" | "answered" | "skipped"; prompt?: string; required?: boolean }[]): string[] {
-  const complete = new Set(nodes.filter((node) => node.status === "answered" || node.status === "skipped").map((node) => node.id));
-  return nodes
-    .filter((node) => node.status !== "answered" && node.status !== "skipped")
-    .filter((node) => node.prerequisites.every((id) => complete.has(id)))
-    .map((node) => node.id);
-}

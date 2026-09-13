@@ -21,10 +21,12 @@ import {
   selectArticleShape,
   skipThoughtNode,
   thoughtDevelopmentReducer,
+  continueAfterStructureOffer,
+  redirectThoughtDevelopment,
   updateDevelopmentFocus,
   validateAndApplyThoughtResponse
 } from "@/lib/thought-development";
-import type { ArticleShapeResponse, ThoughtDevelopmentSession, ThoughtResponse } from "@/lib/types";
+import type { ArticleShapeResponse, ThoughtDevelopmentSession, ThoughtNodeId, ThoughtResponse } from "@/lib/types";
 import { articleShapeOutputSchema, thoughtOutputSchema } from "@/lib/contracts/thought";
 
 const boundary = {
@@ -102,7 +104,8 @@ describe("temporary Thought-Development Session", () => {
     const invalidQuestions = [
       "What is your point and why should readers agree?",
       "Isn't the obvious point that parks improve cities?",
-      "Great insight! What makes it important?"
+      "Great insight! What makes it important?",
+      "Nice. Since parks reduce anxiety, what should readers conclude?"
     ];
 
     for (const question of invalidQuestions) {
@@ -203,6 +206,67 @@ describe("Session Notes and Development Readiness", () => {
     expect(session.readiness.central_point).toBe("unresolved");
   });
 
+  it("rejects a mostly extractive note that adds one invented substantive claim", () => {
+    const session = pendingCentralPoint();
+    expect(() => validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: session.id, turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-invented", role: "central_point",
+        text: "Parks make daily nature available to people without gardens and reduce clinical anxiety.",
+        sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+      } }],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+    })).toThrow("unsupported Session Note");
+    expect(session.notes).toEqual([]);
+  });
+
+  it("rejects a Coach-proposed note mislabeled as Writer-edited", () => {
+    const session = pendingCentralPoint();
+    expect(() => validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: session.id, turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-forged", role: "central_point", text: "Parks make daily nature available.",
+        sourceTurnIds: ["writer-1"], provenance: "writer-edited"
+      } }],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+    })).toThrow("provenance");
+  });
+
+  it("rejects a note that changes meaning by dropping the Writer's negation", () => {
+    const awaiting = awaitingCentralPoint();
+    const session = thoughtDevelopmentReducer(awaiting, {
+      type: "submit_answer", turnId: "writer-negation", text: "Parks do not reduce anxiety."
+    });
+    expect(() => validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: session.id, turnId: "writer-negation", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-negation", role: "central_point", text: "Parks reduce anxiety.",
+        sourceTurnIds: ["writer-negation"], provenance: "coach-proposed"
+      } }],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that distinction matter?" }
+    })).toThrow("unsupported Session Note");
+  });
+
+  it("preserves a redirected topic and requests a fresh question at the current frontier", () => {
+    const session = awaitingCentralPoint();
+    const redirected = redirectThoughtDevelopment(session, {
+      topic: "How access differs across neighborhoods",
+      focus: "both",
+      turnId: "redirect-1"
+    });
+
+    expect(redirected.topic).toBe("How access differs across neighborhoods");
+    expect(redirected.focus).toBe("both");
+    expect(redirected.request).toEqual({ turnId: "redirect-1", targetNodeId: "central_point", status: "pending" });
+    expect(buildThoughtRequest(redirected).topic).toBe("How access differs across neighborhoods");
+  });
+
   it("makes Writer note edits authoritative and allows deletion", () => {
     const session = validateAndApplyThoughtResponse(pendingCentralPoint(), {
       contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-1", targetNodeId: "central_point",
@@ -234,7 +298,7 @@ describe("Session Notes and Development Readiness", () => {
       articleBoundary: boundary,
       proposedNoteChanges: [
         { kind: "upsert", note: { id: "note-proposed", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } },
-        { kind: "upsert", note: { id: "note-edited", role: "central_point", text: "People without gardens get daily nature through parks.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } }
+        { kind: "upsert", note: { id: "note-edited", role: "central_point", text: "daily nature available to people without gardens", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } }
       ],
       readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
       nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
@@ -362,7 +426,12 @@ describe("temporary Article Shapes", () => {
   });
 
   it("turns insufficient or contradictory material into the exact unresolved area and one neutral follow-up", () => {
-    const sparse = { ...shapeReadySession(), notes: shapeReadySession().notes.slice(0, 1) };
+    const sparse = {
+      ...shapeReadySession(),
+      notes: shapeReadySession().notes.slice(0, 1),
+      readiness: { ...shapeReadySession().readiness, reasoning: "unresolved" as const, support: "unresolved" as const },
+      frontier: ["reasoning", "reader_relevance", "structural_placement"] as ThoughtNodeId[]
+    };
     const pending = beginArticleShapeExploration(sparse, "shape-request-1");
     const next = applyArticleShapeResponse(pending, {
       contract: "thought-development.v1", kind: "unresolved", sessionId: "session-1", requestId: "shape-request-1",
@@ -376,6 +445,65 @@ describe("temporary Article Shapes", () => {
       contract: "thought-development.v1", kind: "unresolved", sessionId: "session-1", requestId: "shape-request-1",
       articleBoundary: boundary, unresolvedArea: "reasoning", question: "Great point! What reason applies and what example proves it?"
     })).toThrow("neutral question");
+  });
+
+  it("rejects a structure follow-up outside the current ready frontier atomically", () => {
+    const session = shapeReadySession();
+    const pending = beginArticleShapeExploration(session, "shape-request-1");
+
+    expect(() => applyArticleShapeResponse(pending, {
+      contract: "thought-development.v1", kind: "unresolved", sessionId: "session-1", requestId: "shape-request-1",
+      articleBoundary: boundary, unresolvedArea: "central_point", question: "What central point still needs clarification?"
+    })).toThrow("ready frontier");
+    expect(pending.shapeRequest).toEqual({ requestId: "shape-request-1", status: "pending" });
+    expect(pending.transcript).toEqual(session.transcript);
+  });
+
+  it("accepts a suitable structure offer and lets the Writer continue at the frontier", () => {
+    const base = shapeReadySession();
+    const pending: ThoughtDevelopmentSession = {
+      ...base,
+      request: { turnId: "writer-4", targetNodeId: "reader_relevance", status: "pending" },
+      transcript: [...base.transcript, { id: "writer-4", role: "writer", targetNodeId: "reader_relevance", text: "Readers should notice who lacks private green space.", status: "pending" }]
+    };
+    const offered = validateAndApplyThoughtResponse(pending, {
+      contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-4", targetNodeId: "reader_relevance",
+      articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [], nextAction: { kind: "offer_structures" }
+    });
+
+    expect(offered.structuresOffered).toBe(true);
+    expect(finishThoughtDevelopment(offered).structuresOffered).toBe(false);
+    const continued = continueAfterStructureOffer(offered, "continue-1");
+    expect(continued.structuresOffered).toBe(false);
+    expect(continued.request).toEqual({ turnId: "continue-1", targetNodeId: "reader_relevance", status: "pending" });
+  });
+
+  it("rejects a structure offer before current notes make exploration suitable", () => {
+    const base = shapeReadySession();
+    const session: ThoughtDevelopmentSession = {
+      ...base,
+      notes: base.notes.slice(0, 1),
+      request: { turnId: "writer-4", targetNodeId: "reader_relevance", status: "pending" },
+      transcript: [...base.transcript, { id: "writer-4", role: "writer", targetNodeId: "reader_relevance", text: "Readers should notice who lacks private green space.", status: "pending" }]
+    };
+    expect(() => validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-4", targetNodeId: "reader_relevance",
+      articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [], nextAction: { kind: "offer_structures" }
+    })).toThrow("not suitable");
+  });
+
+  it("rejects a structure offer outside a structure-oriented Development Focus", () => {
+    const base = shapeReadySession();
+    const session: ThoughtDevelopmentSession = {
+      ...base,
+      focus: "thinking",
+      request: { turnId: "writer-4", targetNodeId: "reader_relevance", status: "pending" },
+      transcript: [...base.transcript, { id: "writer-4", role: "writer", targetNodeId: "reader_relevance", text: "Readers should notice who lacks private green space.", status: "pending" }]
+    };
+    expect(() => validateAndApplyThoughtResponse(session, {
+      contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-4", targetNodeId: "reader_relevance",
+      articleBoundary: boundary, proposedNoteChanges: [], readinessPatch: [], nextAction: { kind: "offer_structures" }
+    })).toThrow("Development Focus");
   });
 
   it("rejects more than three Shapes, unknown note references, and Article-prose fields atomically", () => {
