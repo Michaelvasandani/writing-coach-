@@ -4,15 +4,19 @@
 
 **Blocked by:** 01 — Run a safe temporary Thought-Development Session.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each answer may yield zero or more atomic proposed Session Notes linked to supporting Writer turns.
-- [ ] Notes unsupported by the cited Writer answers cause the entire turn response to be rejected.
-- [ ] A quiet drawer shows collected notes without interrupting the Q&A and can be opened at any time.
-- [ ] The Writer can edit or delete any Session Note, and later Session behavior uses the edited set.
-- [ ] Development Readiness visibly covers central point, reasoning, support, reader relevance, and structural placement.
-- [ ] Skip advances dependency traversal while leaving the gap visible.
-- [ ] Revising an answer invalidates dependent proposed material and recomputes the ready frontier without silently changing Writer-edited notes.
-- [ ] Change focus and Finish for now preserve the current partial notes while the dialog remains open.
-- [ ] After five questions and every three thereafter, the Writer can continue, review partial notes, or finish.
-- [ ] Tests cover note-free answers, source linkage, note editing and deletion, skip, answer revision, and readiness recomputation.
+- [x] Each answer may yield zero or more atomic proposed Session Notes linked to supporting Writer turns.
+- [x] Notes unsupported by the cited Writer answers cause the entire turn response to be rejected.
+- [x] A quiet drawer shows collected notes without interrupting the Q&A and can be opened at any time.
+- [x] The Writer can edit or delete any Session Note, and later Session behavior uses the edited set.
+- [x] Development Readiness visibly covers central point, reasoning, support, reader relevance, and structural placement.
+- [x] Skip advances dependency traversal while leaving the gap visible.
+- [x] Revising an answer invalidates dependent proposed material and recomputes the ready frontier without silently changing Writer-edited notes.
+- [x] Change focus and Finish for now preserve the current partial notes while the dialog remains open.
+- [x] After five questions and every three thereafter, the Writer can continue, review partial notes, or finish.
+- [x] Tests cover note-free answers, source linkage, note editing and deletion, skip, answer revision, and readiness recomputation.
+
+## Comments
+
+Implemented in `lib/thought-development.ts` and `app/thought-development-dialog.tsx`, with contract/state coverage in `lib/thought-development.test.ts` and mounted Writer-visible behavior coverage in `app/thought-development-dialog.test.tsx`.

@@ -37,7 +37,7 @@ export function createThoughtDevelopmentSession(input: {
   const frontier = deriveThoughtFrontier(nodes, readiness, input.focus);
   return {
     id: input.id, topic, focus: input.focus, source: input.source ?? { kind: "general" }, articleBoundary: { ...input.articleBoundary },
-    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null,
+    nodes, readiness, frontier, transcript: [], notes: [], shapes: [], selectedShapeId: null, phase: "active",
     request: { turnId: input.requestId, targetNodeId: frontier[0], status: "pending" }, lastError: null
   };
 }
@@ -56,6 +56,20 @@ function sameBoundary(a: ThoughtArticleBoundary, b: ThoughtArticleBoundary) {
   return a.articleId === b.articleId && a.revision === b.revision && a.contentHash === b.contentHash;
 }
 
+const groundingStopWords = new Set(["about", "after", "again", "also", "because", "before", "being", "could", "does", "from", "have", "into", "more", "most", "only", "other", "should", "their", "there", "these", "they", "this", "those", "through", "very", "what", "when", "where", "which", "while", "with", "would"]);
+
+function groundingTokens(text: string) {
+  return text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter((token) => token.length > 3 && !groundingStopWords.has(token)) ?? [];
+}
+
+function isGroundedNote(text: string, sourceText: string) {
+  const noteTokens = groundingTokens(text);
+  if (!noteTokens.length) return sourceText.toLocaleLowerCase().includes(text.trim().toLocaleLowerCase());
+  const sourceTokens = new Set(groundingTokens(sourceText));
+  const grounded = noteTokens.filter((token) => sourceTokens.has(token)).length;
+  return grounded / noteTokens.length >= 0.7;
+}
+
 function applyNoteChanges(session: ThoughtDevelopmentSession, changes: ProposedNoteChange[]) {
   const notes = session.notes.map((note) => ({ ...note, sourceTurnIds: [...note.sourceTurnIds] }));
   const writerTurnIds = new Set(session.transcript.filter((turn) => turn.role === "writer").map((turn) => turn.id));
@@ -66,12 +80,87 @@ function applyNoteChanges(session: ThoughtDevelopmentSession, changes: ProposedN
       continue;
     }
     if (!change.note.text.trim() || !change.note.sourceTurnIds.length || change.note.sourceTurnIds.some((id) => !writerTurnIds.has(id))) throw new Error("invalid Session Note source");
+    const sourceText = session.transcript.filter((turn) => turn.role === "writer" && change.note.sourceTurnIds.includes(turn.id)).map((turn) => turn.text).join(" ");
+    if (!isGroundedNote(change.note.text, sourceText)) throw new Error("unsupported Session Note substance");
     const index = notes.findIndex((note) => note.id === change.note.id);
     if (index >= 0 && notes[index].provenance === "writer-edited") continue;
-    const note = { ...change.note, text: change.note.text.trim(), sourceTurnIds: [...change.note.sourceTurnIds], provenance: "coach-proposed" as const };
+    const note = { ...change.note, text: change.note.text.trim(), sourceTurnIds: [...change.note.sourceTurnIds], provenance: "coach-proposed" as const, needsReview: false };
     if (index >= 0) notes[index] = note; else notes.push(note);
   }
   return notes;
+}
+
+export function editSessionNote(session: ThoughtDevelopmentSession, noteId: string, text: string): ThoughtDevelopmentSession {
+  const nextText = text.trim();
+  if (!nextText) return session;
+  const notes = session.notes.map((note) => note.id === noteId
+    ? { ...note, text: nextText, provenance: "writer-edited" as const, needsReview: false }
+    : note);
+  return notes.some((note, index) => note !== session.notes[index]) ? { ...session, notes } : session;
+}
+
+export function deleteSessionNote(session: ThoughtDevelopmentSession, noteId: string): ThoughtDevelopmentSession {
+  const notes = session.notes.filter((note) => note.id !== noteId);
+  return notes.length === session.notes.length ? session : { ...session, notes };
+}
+
+function dependentNodeIds(session: ThoughtDevelopmentSession, nodeId: ThoughtNodeId) {
+  const affected = new Set<ThoughtNodeId>([nodeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of session.nodes) {
+      if (!affected.has(node.id) && node.prerequisites.some((id) => affected.has(id))) {
+        affected.add(node.id);
+        changed = true;
+      }
+    }
+  }
+  return affected;
+}
+
+export function reviseThoughtAnswer(session: ThoughtDevelopmentSession, turnId: string, text: string): ThoughtDevelopmentSession {
+  const nextText = text.trim();
+  const turnIndex = session.transcript.findIndex((turn) => turn.role === "writer" && turn.id === turnId);
+  const turn = session.transcript[turnIndex];
+  if (!nextText || !turn || turn.role !== "writer" || session.request) return session;
+  const affectedNodes = dependentNodeIds(session, turn.targetNodeId);
+  const affectedTurnIds = new Set(session.transcript.filter((item) => item.role === "writer" && affectedNodes.has(item.targetNodeId)).map((item) => item.id));
+  const transcript = session.transcript.slice(0, turnIndex + 1).map((item) => item.id === turnId
+    ? { ...item, text: nextText, status: "pending" as const }
+    : item);
+  const notes = session.notes.flatMap((note) => {
+    if (!note.sourceTurnIds.some((id) => affectedTurnIds.has(id))) return [note];
+    return note.provenance === "writer-edited" ? [{ ...note, needsReview: true }] : [];
+  });
+  const readiness = { ...session.readiness };
+  for (const nodeId of affectedNodes) readiness[nodeId] = "unresolved";
+  return {
+    ...session, transcript, notes, readiness, frontier: deriveThoughtFrontier(session.nodes, readiness, session.focus),
+    request: { turnId, targetNodeId: turn.targetNodeId, status: "pending" }, lastError: null, phase: "active"
+  };
+}
+
+export function skipThoughtNode(session: ThoughtDevelopmentSession, turnId: string): ThoughtDevelopmentSession {
+  if (session.request || session.phase !== "active") return session;
+  const question = [...session.transcript].reverse().find((turn) => turn.role === "coach");
+  if (!question || session.readiness[question.targetNodeId] !== "unresolved") return session;
+  const readiness = { ...session.readiness, [question.targetNodeId]: "skipped" as const };
+  const frontier = deriveThoughtFrontier(session.nodes, readiness, session.focus);
+  if (!frontier.length) return { ...session, readiness, frontier, phase: "finished" };
+  return { ...session, readiness, frontier, request: { turnId, targetNodeId: frontier[0], status: "pending" }, lastError: null };
+}
+
+export function updateDevelopmentFocus(session: ThoughtDevelopmentSession, focus: DevelopmentFocus): ThoughtDevelopmentSession {
+  return { ...session, focus, frontier: deriveThoughtFrontier(session.nodes, session.readiness, focus) };
+}
+
+export function finishThoughtDevelopment(session: ThoughtDevelopmentSession): ThoughtDevelopmentSession {
+  return { ...session, phase: "finished", request: null, lastError: null };
+}
+
+export function isThoughtCheckpoint(questionCount: number) {
+  return questionCount >= 5 && (questionCount - 5) % 3 === 0;
 }
 
 export function validateAndApplyThoughtResponse(session: ThoughtDevelopmentSession, response: ThoughtResponse): ThoughtDevelopmentSession {

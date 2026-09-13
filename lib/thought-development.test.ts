@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildThoughtRequest,
   createThoughtDevelopmentSession,
+  deleteSessionNote,
+  editSessionNote,
+  finishThoughtDevelopment,
+  isThoughtCheckpoint,
+  reviseThoughtAnswer,
+  skipThoughtNode,
   thoughtDevelopmentReducer,
+  updateDevelopmentFocus,
   validateAndApplyThoughtResponse
 } from "@/lib/thought-development";
 import type { ThoughtResponse } from "@/lib/types";
@@ -139,5 +147,111 @@ describe("Thought Development response contract", () => {
     const response = openingResponse("session-1", "opening-1") as ThoughtResponse & { summary?: string };
     response.summary = "This extra completion field makes the response ambiguous.";
     expect(thoughtOutputSchema.safeParse(response).success).toBe(false);
+  });
+});
+
+describe("Session Notes and Development Readiness", () => {
+  function awaitingCentralPoint() {
+    const created = createThoughtDevelopmentSession({
+      id: "session-1", topic: "Why local parks matter", focus: "thinking", articleBoundary: boundary, requestId: "opening-1"
+    });
+    return validateAndApplyThoughtResponse(created, openingResponse(created.id, "opening-1"));
+  }
+
+  function pendingCentralPoint() {
+    return thoughtDevelopmentReducer(awaitingCentralPoint(), {
+      type: "submit_answer", turnId: "writer-1", text: "Parks make daily nature available to people without gardens."
+    });
+  }
+
+  it("accepts zero or more source-linked notes and rejects unsupported substance atomically", () => {
+    const session = pendingCentralPoint();
+    const supported: ThoughtResponse = {
+      contract: "thought-development.v1", sessionId: session.id, turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-1", role: "central_point", text: "Parks make daily nature available to people without gardens.",
+        sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+      } }],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+    };
+
+    const applied = validateAndApplyThoughtResponse(session, supported);
+    expect(applied.notes).toEqual([expect.objectContaining({ id: "note-1", sourceTurnIds: ["writer-1"] })]);
+
+    expect(() => validateAndApplyThoughtResponse(session, {
+      ...supported,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-unsupported", role: "central_point", text: "Public parks reduce clinical anxiety for every resident.",
+        sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+      } }]
+    })).toThrow("unsupported Session Note");
+    expect(session.notes).toEqual([]);
+    expect(session.readiness.central_point).toBe("unresolved");
+  });
+
+  it("makes Writer note edits authoritative and allows deletion", () => {
+    const session = validateAndApplyThoughtResponse(pendingCentralPoint(), {
+      contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [{ kind: "upsert", note: {
+        id: "note-1", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed"
+      } }],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+    });
+
+    const edited = editSessionNote(session, "note-1", "Parks make nearby nature available.");
+    expect(edited.notes[0]).toMatchObject({ text: "Parks make nearby nature available.", provenance: "writer-edited", needsReview: false });
+    const waiting = thoughtDevelopmentReducer(edited, { type: "submit_answer", turnId: "writer-2", text: "It makes access practical." });
+    expect(buildThoughtRequest(waiting).notes[0].text).toBe("Parks make nearby nature available.");
+    expect(deleteSessionNote(edited, "note-1").notes).toEqual([]);
+  });
+
+  it("skips the active gap, exposes it in readiness, and requests the next frontier question", () => {
+    const skipped = skipThoughtNode(awaitingCentralPoint(), "skip-1");
+    expect(skipped.readiness.central_point).toBe("skipped");
+    expect(skipped.frontier).toEqual(["reasoning", "reader_relevance", "structural_placement"]);
+    expect(skipped.request).toMatchObject({ turnId: "skip-1", targetNodeId: "reasoning", status: "pending" });
+  });
+
+  it("revising an answer invalidates dependent proposed material but flags Writer-edited notes for review", () => {
+    let session = validateAndApplyThoughtResponse(pendingCentralPoint(), {
+      contract: "thought-development.v1", sessionId: "session-1", turnId: "writer-1", targetNodeId: "central_point",
+      articleBoundary: boundary,
+      proposedNoteChanges: [
+        { kind: "upsert", note: { id: "note-proposed", role: "central_point", text: "Parks make daily nature available.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } },
+        { kind: "upsert", note: { id: "note-edited", role: "central_point", text: "People without gardens get daily nature through parks.", sourceTurnIds: ["writer-1"], provenance: "coach-proposed" } }
+      ],
+      readinessPatch: [{ nodeId: "central_point", status: "addressed" }],
+      nextAction: { kind: "ask_question", targetNodeId: "reasoning", question: "Why does that availability matter?" }
+    });
+    session = editSessionNote(session, "note-edited", "Nearby parks make nature practical for people without gardens.");
+
+    const revised = reviseThoughtAnswer(session, "writer-1", "Parks make contact with nature part of an ordinary day.");
+    expect(revised.transcript.filter((turn) => turn.role === "writer")).toEqual([
+      expect.objectContaining({ id: "writer-1", text: "Parks make contact with nature part of an ordinary day.", status: "pending" })
+    ]);
+    expect(revised.notes).toEqual([
+      expect.objectContaining({ id: "note-edited", provenance: "writer-edited", needsReview: true })
+    ]);
+    expect(revised.readiness.central_point).toBe("unresolved");
+    expect(revised.request).toMatchObject({ turnId: "writer-1", targetNodeId: "central_point", status: "pending" });
+  });
+
+  it("changes focus and finishes without discarding partial notes", () => {
+    const session = awaitingCentralPoint();
+    const changed = updateDevelopmentFocus(session, "structure");
+    expect(changed.focus).toBe("structure");
+    expect(changed.notes).toBe(session.notes);
+
+    const finished = finishThoughtDevelopment(changed);
+    expect(finished.phase).toBe("finished");
+    expect(finished.notes).toBe(changed.notes);
+  });
+
+  it("offers reflection after question five and every three questions thereafter", () => {
+    expect([1, 4, 5, 6, 8, 11, 12].filter(isThoughtCheckpoint)).toEqual([5, 8, 11]);
   });
 });
