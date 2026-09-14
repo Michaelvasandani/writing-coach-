@@ -1,4 +1,4 @@
-import type { Anchor, ArticleBlock, Suggestion, SuggestionResponse, ThoughtNode } from "@/lib/types";
+import type { Anchor, ArticleBlock, Suggestion, SuggestionResponse } from "@/lib/types";
 
 export function validateAnchor(blocks: ArticleBlock[], anchor: Anchor): boolean {
   const block = blocks.find((item) => item.id === anchor.blockId);
@@ -57,12 +57,4 @@ export function applySuggestionResponse(
   const passage = ranked.filter((item) => item.scope === "passage").slice(0, 5);
   const structural = ranked.filter((item) => item.scope === "structural").slice(0, 3);
   return [...passage, ...structural];
-}
-
-export function findFrontier(nodes: ThoughtNode[]): string[] {
-  const complete = new Set(nodes.filter((node) => node.status === "answered" || node.status === "skipped").map((node) => node.id));
-  return nodes
-    .filter((node) => node.status !== "answered" && node.status !== "skipped")
-    .filter((node) => node.prerequisites.every((id) => complete.has(id)))
-    .map((node) => node.id);
 }

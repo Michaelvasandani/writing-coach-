@@ -25,11 +25,64 @@ export type SuggestionResponse = {
 };
 
 export type ThoughtNode = {
-  id: string;
-  prompt: string;
+  id: ThoughtNodeId;
+  label: string;
   required: boolean;
-  prerequisites: string[];
-  status: "ready" | "blocked" | "answered" | "skipped";
+  prerequisites: ThoughtNodeId[];
+};
+
+export const thoughtNodeIds = ["central_point", "reasoning", "support", "reader_relevance", "structural_placement"] as const;
+export type ThoughtNodeId = (typeof thoughtNodeIds)[number];
+export type DevelopmentFocus = "thinking" | "structure" | "both";
+export type DevelopmentReadinessState = "unresolved" | "addressed" | "skipped";
+export type DevelopmentReadiness = Record<ThoughtNodeId, DevelopmentReadinessState>;
+
+export type ThoughtSource =
+  | { kind: "general" }
+  | { kind: "passage"; text: string; blockId?: string; from: number; to: number }
+  | { kind: "suggestion"; suggestionId: string; text: string }
+  | { kind: "priority"; rank: number; text: string };
+
+export type ThoughtArticleBoundary = { articleId: string; revision: number; contentHash: string };
+export type ThoughtTranscriptTurn =
+  | { id: string; role: "writer"; targetNodeId: ThoughtNodeId; text: string; status: "pending" | "failed" | "accepted" }
+  | { id: string; role: "coach"; targetNodeId: ThoughtNodeId; text: string };
+export type SessionNote = {
+  id: string; role: ThoughtNodeId; text: string; sourceTurnIds: string[]; provenance: "coach-proposed" | "writer-edited";
+  needsReview?: boolean;
+};
+export type ArticleShapeSection = { id: string; purpose: string; noteIds: string[] };
+export type ArticleShape = { id: string; organizingLogic: string; tradeoff: string; sections: ArticleShapeSection[] };
+export type ArticleShapeResponse = {
+  contract: "thought-development.v1"; sessionId: string; requestId: string; articleBoundary: ThoughtArticleBoundary;
+} & (
+  | { kind: "shapes"; shapes: ArticleShape[] }
+  | { kind: "unresolved"; unresolvedArea: ThoughtNodeId; question: string }
+);
+export type ThoughtRequestState = {
+  turnId: string; targetNodeId: ThoughtNodeId; status: "pending" | "failed"; error?: string;
+};
+export type ArticleShapeRequestState = { requestId: string; status: "pending" | "failed"; error?: string };
+export type ArticleShapeIssue = { unresolvedArea: ThoughtNodeId; question: string };
+export type ThoughtDevelopmentSession = {
+  id: string; topic: string; focus: DevelopmentFocus; source: ThoughtSource; articleBoundary: ThoughtArticleBoundary;
+  nodes: ThoughtNode[]; readiness: DevelopmentReadiness; frontier: ThoughtNodeId[]; transcript: ThoughtTranscriptTurn[];
+  notes: SessionNote[]; shapes: ArticleShape[]; selectedShapeId: string | null; request: ThoughtRequestState | null; lastError: string | null;
+  shapeRequest: ArticleShapeRequestState | null; shapeIssue: ArticleShapeIssue | null;
+  structuresOffered: boolean;
+  phase: "active" | "finished";
+};
+export type ProposedNoteChange =
+  | { kind: "upsert"; note: SessionNote }
+  | { kind: "delete"; noteId: string };
+export type ThoughtNextAction =
+  | { kind: "ask_question"; targetNodeId: ThoughtNodeId; question: string }
+  | { kind: "offer_structures" }
+  | { kind: "complete" };
+export type ThoughtResponse = {
+  contract: "thought-development.v1"; sessionId: string; turnId: string; targetNodeId: ThoughtNodeId;
+  articleBoundary: ThoughtArticleBoundary; proposedNoteChanges: ProposedNoteChange[];
+  readinessPatch: { nodeId: ThoughtNodeId; status: "addressed" | "skipped" }[]; nextAction: ThoughtNextAction;
 };
 
 export type SnapshotJudgment = {
